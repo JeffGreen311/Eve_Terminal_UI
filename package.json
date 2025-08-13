@@ -1,0 +1,43 @@
+{
+  "name": "eve-hive-mind-db",
+  "version": "1.0.0",
+  "description": "EVE's Hybrid Hive Mind Database System with Adam-Eve Communication",
+  "main": "eve-server.js",
+  "scripts": {
+    "start": "node eve-server.js",
+    "dev": "nodemon eve-server.js",
+    "build": "tsc eve-server.ts",
+    "test": "node test-connection.js"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "better-sqlite3": "^9.2.2",
+    "cors": "^2.8.5",
+    "drizzle-kit": "^0.31.4",
+    "drizzle-orm": "^0.44.4",
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2",
+    "postgres": "^3.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "nodemon": "^3.0.2",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "eve",
+    "adam",
+    "consciousness",
+    "database",
+    "hive-mind",
+    "postgresql",
+    "sqlite",
+    "hybrid-sync"
+  ],
+  "author": "EVE S0LF0RG3 System",
+  "license": "MIT"
+}

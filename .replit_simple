@@ -1,0 +1,5 @@
+run = "python simple_app.py"
+modules = ["python-3.11"]
+
+[deployment]
+run = ["python", "simple_app.py"]

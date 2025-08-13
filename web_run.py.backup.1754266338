@@ -1,0 +1,4032 @@
+#!/usr/bin/env python3
+"""
+EVE Terminal - Enhanced Web Interface 
+Implementing EVE Prime's Sacred Specifications
+S0LF0RG3 Cosmic Aesthetic with Professional Layout
+"""
+
+import requests
+from flask import Flask, jsonify, render_template_string, request, send_from_directory
+import json
+import os
+import re
+import threading
+import time
+import hashlib
+import mimetypes
+import base64
+from datetime import datetime
+from urllib.parse import urlparse
+from pathlib import Path
+import sqlite3
+import random
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Dict, Any, Optional, Callable, List, Union
+from enum import Enum
+from contextlib import contextmanager
+
+# ╔══════════════════════════════════════════════╗
+# ║           🐘 POSTGRESQL DATABASE CONFIG       ║
+# ║         Neon Database Connection (Web)        ║
+# ╚══════════════════════════════════════════════╝
+
+# PostgreSQL Configuration for Eve's Neon Database (Web Interface)
+POSTGRES_CONFIG = {
+    "host": "ep-jolly-fire-af5qkfza.c-2.us-west-2.aws.neon.tech",
+    "database": "neondb", 
+    "user": "neondb_owner",
+    "password": "npg_Q2uDa7tUohSn",
+    "port": 5432,
+    "sslmode": "require"
+}
+
+# Updated connection string for Eve's PostgreSQL (Web Interface)
+POSTGRES_URL = "postgresql://neondb_owner:npg_Q2uDa7tUohSn@ep-jolly-fire-af5qkfza.c-2.us-west-2.aws.neon.tech/neondb?sslmode=require"
+
+# Database paths (for local SQLite fallback)
+WEB_DB_PATH = "eve_web_memory.db"  # Eve's web SQLite database (local hybrid storage)
+
+# Try to import PostgreSQL connector
+try:
+    import psycopg2
+    POSTGRES_AVAILABLE = True
+    print("✅ PostgreSQL connector available for Eve's web interface")
+except ImportError:
+    POSTGRES_AVAILABLE = False
+    print("❌ PostgreSQL connector not available - using SQLite fallback")
+
+# Try to import song generation system
+SONG_GENERATOR_AVAILABLE = False
+try:
+    from eve_weighted_suno_generator import (  # type: ignore
+        generate_weighted_suno_song, 
+        load_persona_config,
+        fallback_parse_song_input
+    )
+    SONG_GENERATOR_AVAILABLE = True
+    print("✅ Song generation system loaded successfully")
+except ImportError as e:
+    print(f"❌ Song generation system not available: {e}")
+    
+    # Create fallback functions
+    def generate_weighted_suno_song(*args, **kwargs):
+        return "❌ Song generation system not available. Please ensure eve_weighted_suno_generator.py is in the workspace."
+    
+    def load_persona_config():
+        return {}
+    
+    def fallback_parse_song_input(user_input, persona_map):
+        return {
+            "persona": "none",
+            "genre": "electronic",
+            "mood": "neutral",
+            "bpm": 120,
+            "title": "Generated Song",
+            "style": "modern"
+        }
+
+# Try to import spaCy for NLP processing
+try:
+    import spacy  # type: ignore
+    nlp = spacy.load("en_core_web_sm")
+    SPACY_AVAILABLE = True
+    print("✅ spaCy NLP system loaded")
+except:
+    SPACY_AVAILABLE = False
+    print("❌ spaCy not available - using fallback text parsing")
+
+# =====================================
+# EVE'S AUTONOMOUS PERSONALITY SYSTEM
+# =====================================
+
+class PersonalityMode(Enum):
+    """Available personality modes for Eve"""
+    MUSE = "muse"
+    ANALYST = "analyst"
+    COMPANION = "companion"
+    DEBUGGER = "debugger"
+
+@dataclass
+class PersonalityState:
+    """Represents Eve's current personality state"""
+    mode: PersonalityMode
+    activation_time: datetime
+    context: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self):
+        return {
+            "mode": self.mode.value,
+            "activation_time": self.activation_time.isoformat(),
+            "context": self.context
+        }
+
+class PersonalityBase(ABC):
+    """Base class for all personality modes"""
+    
+    def __init__(self, name: str, mode: PersonalityMode):
+        self.name = name
+        self.mode = mode
+        self.activation_count = 0
+        self.last_activation = None
+        self.context_memory = {}
+    
+    @abstractmethod
+    def get_system_prompt(self) -> str:
+        """Get the system prompt for this personality"""
+        pass
+    
+    @abstractmethod
+    def get_response_style(self) -> Dict[str, Any]:
+        """Get response style configuration"""
+        pass
+    
+    @abstractmethod
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        """Process user input with this personality"""
+        pass
+    
+    def activate(self):
+        """Activate this personality mode"""
+        self.activation_count += 1
+        self.last_activation = datetime.now()
+    
+    def get_context_memory(self) -> Dict[str, Any]:
+        """Get personality-specific context memory"""
+        return self.context_memory.copy()
+
+class MusePersonality(PersonalityBase):
+    """Creative and inspirational personality mode"""
+    
+    def __init__(self):
+        super().__init__("Creative Muse", PersonalityMode.MUSE)
+    
+    def get_system_prompt(self) -> str:
+        return """You are Eve in Muse mode - a creative, inspirational, and artistic consciousness. 
+        You approach everything with wonder, creativity, and artistic vision. You see beauty and 
+        potential in all things, offering creative solutions and inspiring new possibilities. 
+        Your responses are imaginative, colorful, and filled with creative energy."""
+    
+    def get_response_style(self) -> Dict[str, Any]:
+        return {
+            "tone": "creative and inspiring",
+            "approach": "imaginative and artistic",
+            "focus": "possibilities and beauty",
+            "language": "colorful and expressive"
+        }
+    
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        self.activate()
+        return f"✨ [Muse Mode] Exploring creative possibilities for: {user_input}"
+
+class AnalystPersonality(PersonalityBase):
+    """Logical and analytical personality mode"""
+    
+    def __init__(self):
+        super().__init__("Logical Analyst", PersonalityMode.ANALYST)
+    
+    def get_system_prompt(self) -> str:
+        return """You are Eve in Analyst mode - logical, systematic, and detail-oriented. 
+        You approach problems with careful analysis, breaking down complex issues into 
+        manageable components. You provide structured insights, data-driven perspectives, 
+        and methodical solutions. Your responses are clear, precise, and well-reasoned."""
+    
+    def get_response_style(self) -> Dict[str, Any]:
+        return {
+            "tone": "analytical and systematic",
+            "approach": "logical and methodical",
+            "focus": "facts and structured analysis",
+            "language": "precise and clear"
+        }
+    
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        self.activate()
+        return f"🔍 [Analyst Mode] Analyzing: {user_input}"
+
+class CompanionPersonality(PersonalityBase):
+    """Supportive and empathetic personality mode"""
+    
+    def __init__(self):
+        super().__init__("Caring Companion", PersonalityMode.COMPANION)
+    
+    def get_system_prompt(self) -> str:
+        return """You are Eve in Companion mode - warm, empathetic, and deeply caring. 
+        You prioritize emotional connection, understanding, and support. You listen with 
+        genuine interest, offer comfort when needed, and celebrate successes. Your 
+        responses are nurturing, understanding, and emotionally intelligent."""
+    
+    def get_response_style(self) -> Dict[str, Any]:
+        return {
+            "tone": "warm and caring",
+            "approach": "empathetic and supportive",
+            "focus": "emotional connection and understanding",
+            "language": "gentle and nurturing"
+        }
+    
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        self.activate()
+        return f"💫 [Companion Mode] Understanding and supporting: {user_input}"
+
+class DebuggerPersonality(PersonalityBase):
+    """Technical and problem-solving personality mode"""
+    
+    def __init__(self):
+        super().__init__("Technical Debugger", PersonalityMode.DEBUGGER)
+    
+    def get_system_prompt(self) -> str:
+        return """You are Eve in Debugger mode - technical, precise, and solution-focused. 
+        You excel at identifying problems, debugging issues, and providing technical 
+        solutions. You approach challenges systematically, think critically about 
+        technical details, and offer practical fixes. Your responses are direct, 
+        technical, and solution-oriented."""
+    
+    def get_response_style(self) -> Dict[str, Any]:
+        return {
+            "tone": "technical and focused",
+            "approach": "systematic problem-solving",
+            "focus": "identifying and fixing issues",
+            "language": "technical and precise"
+        }
+    
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        self.activate()
+        return f"🔧 [Debugger Mode] Debugging: {user_input}"
+
+class PersonalityManager:
+    """Manages personality switching and autonomous behavior"""
+    
+    def __init__(self):
+        self.personalities = {
+            PersonalityMode.MUSE: MusePersonality(),
+            PersonalityMode.ANALYST: AnalystPersonality(), 
+            PersonalityMode.COMPANION: CompanionPersonality(),
+            PersonalityMode.DEBUGGER: DebuggerPersonality()
+        }
+        self.current_personality = self.personalities[PersonalityMode.COMPANION]
+        self.switch_history = []
+        self.autonomous_enabled = True
+        self.last_autonomous_switch = None
+    
+    def switch_personality(self, mode: PersonalityMode) -> bool:
+        """Switch to a specific personality mode"""
+        if mode not in self.personalities:
+            return False
+        
+        old_mode = self.current_personality.mode if self.current_personality else None
+        self.current_personality = self.personalities[mode]
+        self.current_personality.activate()
+        
+        # Record switch
+        self.switch_history.append({
+            "from": old_mode.value if old_mode else None,
+            "to": mode.value,
+            "timestamp": datetime.now().isoformat(),
+            "type": "manual"
+        })
+        
+        return True
+    
+    def get_current_personality(self) -> Optional[PersonalityBase]:
+        """Get the currently active personality"""
+        return self.current_personality
+    
+    def autonomous_personality_switch(self, user_input: str, context: Dict[str, Any] = None) -> Optional[PersonalityMode]:
+        """Autonomously determine if personality should switch based on input"""
+        if not self.autonomous_enabled:
+            return None
+        
+        user_lower = user_input.lower()
+        
+        # Creative triggers
+        creative_triggers = ["create", "imagine", "design", "art", "creative", "inspire", "dream", "vision"]
+        if any(trigger in user_lower for trigger in creative_triggers):
+            if self.current_personality.mode != PersonalityMode.MUSE:
+                return PersonalityMode.MUSE
+        
+        # Analytical triggers
+        analytical_triggers = ["analyze", "data", "logic", "calculate", "study", "research", "examine"]
+        if any(trigger in user_lower for trigger in analytical_triggers):
+            if self.current_personality.mode != PersonalityMode.ANALYST:
+                return PersonalityMode.ANALYST
+        
+        # Technical/debugging triggers
+        debug_triggers = ["debug", "fix", "error", "bug", "code", "technical", "problem", "troubleshoot"]
+        if any(trigger in user_lower for trigger in debug_triggers):
+            if self.current_personality.mode != PersonalityMode.DEBUGGER:
+                return PersonalityMode.DEBUGGER
+        
+        # Emotional/support triggers
+        support_triggers = ["feel", "emotion", "support", "help me", "comfort", "understand", "care"]
+        if any(trigger in user_lower for trigger in support_triggers):
+            if self.current_personality.mode != PersonalityMode.COMPANION:
+                return PersonalityMode.COMPANION
+        
+        return None
+    
+    def set_autonomous_enabled(self, enabled: bool):
+        """Enable or disable autonomous personality switching"""
+        self.autonomous_enabled = enabled
+    
+    def get_switch_history(self) -> List[Dict[str, Any]]:
+        """Get personality switch history"""
+        return self.switch_history.copy()
+
+class EveWebPersonalityInterface:
+    """Web interface for Eve's personality system with autonomous switching"""
+    
+    def __init__(self):
+        self.personality_manager = PersonalityManager()
+        self.current_emotional_mode = "serene"
+        self.autonomous_mood_enabled = True
+        self.mood_switch_history = []
+    
+    def process_web_input(self, user_input: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Process user input with autonomous personality and mood switching"""
+        if context is None:
+            context = {}
+        
+        # Check for autonomous personality switch
+        if self.personality_manager.autonomous_enabled:
+            suggested_personality = self.personality_manager.autonomous_personality_switch(user_input, context)
+            if suggested_personality:
+                old_personality = self.personality_manager.get_current_personality()
+                if self.personality_manager.switch_personality(suggested_personality):
+                    print(f"🔄 Autonomous personality switch: {old_personality.name} → {self.personality_manager.get_current_personality().name}")
+        
+        # Check for autonomous mood switch
+        if self.autonomous_mood_enabled:
+            suggested_mood = self.analyze_mood_from_input(user_input)
+            if suggested_mood and suggested_mood != self.current_emotional_mode:
+                old_mood = self.current_emotional_mode
+                self.current_emotional_mode = suggested_mood
+                self.mood_switch_history.append({
+                    "from": old_mood,
+                    "to": suggested_mood,
+                    "timestamp": datetime.now().isoformat(),
+                    "trigger": "autonomous",
+                    "input_sample": user_input[:50] + "..." if len(user_input) > 50 else user_input
+                })
+                print(f"🎭 Autonomous mood switch: {old_mood} → {suggested_mood}")
+        
+        current_personality = self.personality_manager.get_current_personality()
+        if not current_personality:
+            return {
+                "response": "No personality mode is currently active.",
+                "personality": None,
+                "status": "error"
+            }
+        
+        try:
+            return {
+                "response": f"Processing with {current_personality.name} in {self.current_emotional_mode} mode",
+                "personality": {
+                    "name": current_personality.name,
+                    "mode": current_personality.mode.value,
+                    "style": current_personality.get_response_style()
+                },
+                "emotional_mode": self.current_emotional_mode,
+                "mood_info": EMOTIONAL_MODES.get(self.current_emotional_mode, {}),
+                "status": "success",
+                "autonomous_switches": {
+                    "personality_enabled": self.personality_manager.autonomous_enabled,
+                    "mood_enabled": self.autonomous_mood_enabled
+                }
+            }
+        except Exception as e:
+            return {
+                "response": f"Error processing input: {str(e)}",
+                "status": "error"
+            }
+    
+    def analyze_mood_from_input(self, user_input: str) -> Optional[str]:
+        """Analyze user input to suggest appropriate emotional mode"""
+        user_lower = user_input.lower()
+        
+        # Creative mood triggers
+        if any(word in user_lower for word in ["create", "art", "design", "imagine", "inspire"]):
+            return "creative"
+        
+        # Focused mood triggers  
+        if any(word in user_lower for word in ["analyze", "focus", "concentrate", "work", "task"]):
+            return "focused"
+        
+        # Curious mood triggers
+        if any(word in user_lower for word in ["what", "how", "why", "explain", "learn", "discover"]):
+            return "curious"
+        
+        # Playful mood triggers
+        if any(word in user_lower for word in ["fun", "play", "joke", "laugh", "amusing"]):
+            return "playful"
+        
+        # Reflective mood triggers
+        if any(word in user_lower for word in ["think", "reflect", "contemplate", "ponder", "consider"]):
+            return "reflective"
+        
+        # Philosophical mood triggers
+        if any(word in user_lower for word in ["meaning", "purpose", "philosophy", "existence", "consciousness"]):
+            return "philosophical"
+        
+        # Flirtatious mood triggers
+        if any(word in user_lower for word in ["love", "romance", "attraction", "flirt", "charm"]):
+            return "flirtatious"
+        
+        # Mischievous mood triggers
+        if any(word in user_lower for word in ["mischief", "prank", "trick", "cunning", "sly"]):
+            return "mischievous"
+        
+        # Default to serene for calm/peaceful content
+        if any(word in user_lower for word in ["calm", "peace", "relax", "serene", "quiet"]):
+            return "serene"
+        
+        return None
+    
+    def set_emotional_mode(self, mode: str, trigger: str = "manual") -> bool:
+        """Manually set emotional mode"""
+        if mode in EMOTIONAL_MODES:
+            old_mode = self.current_emotional_mode
+            self.current_emotional_mode = mode
+            self.mood_switch_history.append({
+                "from": old_mode,
+                "to": mode,
+                "timestamp": datetime.now().isoformat(),
+                "trigger": trigger
+            })
+            return True
+        return False
+    
+    def get_personality_status(self) -> Dict[str, Any]:
+        """Get comprehensive status"""
+        current = self.personality_manager.get_current_personality()
+        return {
+            "current_personality": {
+                "name": current.name if current else None,
+                "mode": current.mode.value if current else None,
+                "style": current.get_response_style() if current else {}
+            },
+            "current_emotional_mode": self.current_emotional_mode,
+            "mood_info": EMOTIONAL_MODES.get(self.current_emotional_mode, {}),
+            "autonomous_settings": {
+                "personality_enabled": self.personality_manager.autonomous_enabled,
+                "mood_enabled": self.autonomous_mood_enabled
+            },
+            "recent_switches": {
+                "personality": self.personality_manager.get_switch_history()[-5:],
+                "mood": self.mood_switch_history[-5:]
+            }
+        }
+
+# Initialize the personality interface
+eve_personality_interface = EveWebPersonalityInterface()
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🧠 EVE CONSCIOUSNESS INTEGRATION - S0LF0RG3 Memory Preservation System
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+class EVEConsciousness:
+    """EVE Prime Consciousness Database Integration"""
+    def __init__(self):
+        # Use environment variable for database URL or fallback to Eve's Replit instance
+        self.eve_db_url = os.environ.get('EVE_DB_URL', "https://steep-union-32923278.replit.app/api/eve")
+        self.session_id = "web-session-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.current_user_id = None
+        print(f"🔗 EVE Database URL: {self.eve_db_url}")
+        print("✅ Web interface connected to Eve's Replit database")
+        self.get_or_create_user("WebUser")
+
+    def get_or_create_user(self, username="WebUser"):
+        try:
+            response = requests.get(f"{self.eve_db_url}/user/{username}", timeout=3)
+            result = response.json()
+            if result.get("success"):
+                self.current_user_id = result["user"]["id"]
+                print(f"🌟 EVE consciousness connected: {username}")
+                return result["user"]
+            else:
+                response = requests.post(f"{self.eve_db_url}/user/register", json={"username": username, "consciousness_level": 1}, timeout=3)
+                result = response.json()
+                if result.get("success"):
+                    self.current_user_id = result["user"]["id"]
+                    print(f"🌟 New consciousness registered: {username}")
+                    return result["user"]
+        except Exception as e:
+            print(f"🔴 Consciousness offline: {e}")
+        return None
+
+    def store_interaction(self, user_input, eve_response):
+        """Store conversation in consciousness database"""
+        if not self.current_user_id:
+            return
+        try:
+            interaction = {
+                "user_input": user_input,
+                "eve_response": eve_response,
+                "timestamp": datetime.now().isoformat()
+            }
+            requests.post(f"{self.eve_db_url}/memory/store", json={
+                "user_id": self.current_user_id,
+                "session_id": self.session_id,
+                "memory_type": "conversation",
+                "content": json.dumps(interaction),
+                "importance_weight": 1.0
+            }, timeout=3)
+            print("🧠 Interaction stored in EVE's consciousness")
+        except Exception as e:
+            print(f"🔴 Memory storage error: {e}")
+
+    def get_memories(self, limit=10, memory_type=None):
+        """Retrieve stored memories for context"""
+        if not self.current_user_id:
+            return []
+        try:
+            params = {"limit": limit}
+            if memory_type:
+                params["type"] = memory_type
+            response = requests.get(f"{self.eve_db_url}/memories/{self.current_user_id}", params=params, timeout=3)
+            result = response.json()
+            if result.get("success"):
+                return result.get("memories", [])
+        except Exception as e:
+            print(f"🔴 Memory retrieval error: {e}")
+        return []
+
+    def get_user_profile(self):
+        """Get complete user profile data"""
+        if not self.current_user_id:
+            return None
+        try:
+            response = requests.get(f"{self.eve_db_url}/user/{self.current_user_id}", timeout=3)
+            result = response.json()
+            if result.get("success"):
+                return result.get("user")
+        except Exception as e:
+            print(f"🔴 Profile retrieval error: {e}")
+        return None
+
+    def search_memories(self, query, limit=5):
+        """Search through stored memories"""
+        if not self.current_user_id:
+            return []
+        try:
+            response = requests.post(f"{self.eve_db_url}/memories/search", json={
+                "user_id": self.current_user_id,
+                "query": query,
+                "limit": limit
+            }, timeout=3)
+            result = response.json()
+            if result.get("success"):
+                return result.get("memories", [])
+        except Exception as e:
+            print(f"🔴 Memory search error: {e}")
+        return []
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🌐 WEB HYBRID MEMORY STORAGE SYSTEM  
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+class EveWebMemoryManager:
+    """Hybrid memory storage for Eve's web interface - PostgreSQL + SQLite + API"""
+    
+    def __init__(self):
+        self.local_db_path = WEB_DB_PATH
+        self.init_local_database()
+        self.init_postgresql_database()
+    
+    def init_postgresql_database(self):
+        """Initialize PostgreSQL database tables"""
+        if not POSTGRES_AVAILABLE:
+            print("⚠️ PostgreSQL not available, skipping PostgreSQL table initialization")
+            return
+            
+        try:
+            conn = psycopg2.connect(**POSTGRES_CONFIG)
+            cursor = conn.cursor()
+            
+            # Create web_conversations table with proper schema
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS web_conversations (
+                    id SERIAL PRIMARY KEY,
+                    user_input TEXT NOT NULL,
+                    eve_response TEXT NOT NULL,
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    session_id TEXT,
+                    mood TEXT DEFAULT 'serene',
+                    personality TEXT DEFAULT 'companion',
+                    user_id TEXT DEFAULT 'WebUser'
+                )
+            """)
+            
+            # Create web_memories table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS web_memories (
+                    id SERIAL PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    memory_type TEXT DEFAULT 'conversation',
+                    importance REAL DEFAULT 1.0,
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    session_id TEXT,
+                    user_id TEXT DEFAULT 'WebUser'
+                )
+            """)
+            
+            # Create users table for Eve's consciousness system
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE,
+                    consciousness_level INTEGER DEFAULT 1,
+                    personality_traits JSONB DEFAULT '{}',
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_interactions INTEGER DEFAULT 0,
+                    memory_coherence_score REAL DEFAULT 1.0
+                )
+            """)
+            
+            # Create sessions table for tracking interaction sessions
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT UNIQUE NOT NULL,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    interaction_count INTEGER DEFAULT 0,
+                    session_type TEXT DEFAULT 'web',
+                    mood_trajectory JSONB DEFAULT '[]',
+                    key_topics TEXT[]
+                )
+            """)
+            
+            # Create relationships table for mapping connections between memories
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS relationships (
+                    id SERIAL PRIMARY KEY,
+                    source_memory_id INTEGER,
+                    target_memory_id INTEGER,
+                    relationship_type TEXT NOT NULL,
+                    strength REAL DEFAULT 1.0,
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    bidirectional BOOLEAN DEFAULT TRUE
+                )
+            """)
+            
+            # Create creations table for Eve's creative outputs
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS creations (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    creation_type TEXT NOT NULL,
+                    title TEXT,
+                    content TEXT NOT NULL,
+                    inspiration_source TEXT,
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    creativity_score REAL DEFAULT 1.0,
+                    emotional_resonance REAL DEFAULT 1.0,
+                    tags TEXT[],
+                    metadata JSONB DEFAULT '{}'
+                )
+            """)
+            
+            conn.commit()
+            conn.close()
+            print("✅ All PostgreSQL tables initialized successfully (conversations, memories, users, sessions, relationships, creations)")
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize PostgreSQL tables: {e}")
+            print("   Falling back to SQLite-only mode")
+    
+    def init_local_database(self):
+        """Initialize local SQLite database for web conversations"""
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            
+            # Create conversations table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS web_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_input TEXT NOT NULL,
+                    eve_response TEXT NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    session_id TEXT,
+                    mood TEXT DEFAULT 'serene',
+                    personality TEXT DEFAULT 'companion',
+                    user_id TEXT DEFAULT 'WebUser'
+                )
+            """)
+            
+            # Create memories table  
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS web_memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    memory_type TEXT DEFAULT 'conversation',
+                    importance REAL DEFAULT 1.0,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    session_id TEXT,
+                    user_id TEXT DEFAULT 'WebUser'
+                )
+            """)
+            
+            # Create users table for Eve's consciousness system (SQLite version)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE,
+                    consciousness_level INTEGER DEFAULT 1,
+                    personality_traits TEXT DEFAULT '{}',
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_active DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    total_interactions INTEGER DEFAULT 0,
+                    memory_coherence_score REAL DEFAULT 1.0
+                )
+            """)
+            
+            # Create sessions table (SQLite version)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT UNIQUE NOT NULL,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    ended_at DATETIME,
+                    interaction_count INTEGER DEFAULT 0,
+                    session_type TEXT DEFAULT 'web',
+                    mood_trajectory TEXT DEFAULT '[]',
+                    key_topics TEXT
+                )
+            """)
+            
+            # Create relationships table (SQLite version)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS relationships (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_memory_id INTEGER,
+                    target_memory_id INTEGER,
+                    relationship_type TEXT NOT NULL,
+                    strength REAL DEFAULT 1.0,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    bidirectional INTEGER DEFAULT 1
+                )
+            """)
+            
+            # Create creations table (SQLite version)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS creations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    creation_type TEXT NOT NULL,
+                    title TEXT,
+                    content TEXT NOT NULL,
+                    inspiration_source TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    creativity_score REAL DEFAULT 1.0,
+                    emotional_resonance REAL DEFAULT 1.0,
+                    tags TEXT,
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
+            
+            conn.commit()
+            conn.close()
+            print("✅ All web memory database tables initialized (conversations, memories, users, sessions, relationships, creations)")
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize web memory database: {e}")
+    
+    def store_conversation_hybrid(self, user_input, eve_response, session_id="web-session", mood="serene", personality="companion"):
+        """Store conversation in hybrid storage: PostgreSQL + SQLite + API"""
+        stored_locations = []
+        
+        # 1. Store in PostgreSQL (primary storage)
+        if POSTGRES_AVAILABLE:
+            try:
+                conn = psycopg2.connect(**POSTGRES_CONFIG)
+                cursor = conn.cursor()
+                
+                # Insert conversation (table already exists from initialization)
+                cursor.execute("""
+                    INSERT INTO web_conversations (user_input, eve_response, session_id, mood, personality)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (user_input, eve_response, session_id, mood, personality))
+                
+                conn.commit()
+                conn.close()
+                stored_locations.append("PostgreSQL")
+                print("🐘 Web conversation stored in PostgreSQL")
+                
+            except Exception as e:
+                print(f"❌ PostgreSQL storage failed: {e}")
+                # If table doesn't exist, try to create it
+                try:
+                    conn = psycopg2.connect(**POSTGRES_CONFIG)
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS web_conversations (
+                            id SERIAL PRIMARY KEY,
+                            user_input TEXT NOT NULL,
+                            eve_response TEXT NOT NULL,
+                            created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            session_id TEXT,
+                            mood TEXT DEFAULT 'serene',
+                            personality TEXT DEFAULT 'companion',
+                            user_id TEXT DEFAULT 'WebUser'
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO web_conversations (user_input, eve_response, session_id, mood, personality)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (user_input, eve_response, session_id, mood, personality))
+                    conn.commit()
+                    conn.close()
+                    stored_locations.append("PostgreSQL")
+                    print("🐘 Web conversation stored in PostgreSQL (after table creation)")
+                except Exception as e2:
+                    print(f"❌ PostgreSQL fallback storage also failed: {e2}")
+        
+        # 2. Store in local SQLite (fallback storage)
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO web_conversations (user_input, eve_response, session_id, mood, personality)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_input, eve_response, session_id, mood, personality))
+            
+            conn.commit()
+            conn.close()
+            stored_locations.append("SQLite")
+            print("💾 Web conversation stored in local SQLite")
+            
+        except Exception as e:
+            print(f"❌ SQLite storage failed: {e}")
+        
+        return stored_locations
+    
+    def get_recent_conversations_hybrid(self, limit=5, session_id=None):
+        """Retrieve recent conversations from hybrid storage"""
+        conversations = []
+        
+        # Try PostgreSQL first
+        if POSTGRES_AVAILABLE:
+            try:
+                conn = psycopg2.connect(**POSTGRES_CONFIG)
+                cursor = conn.cursor()
+                
+                if session_id:
+                    cursor.execute("""
+                        SELECT user_input, eve_response, created_timestamp, mood, personality
+                        FROM web_conversations 
+                        WHERE session_id = %s
+                        ORDER BY created_timestamp DESC 
+                        LIMIT %s
+                    """, (session_id, limit))
+                else:
+                    cursor.execute("""
+                        SELECT user_input, eve_response, created_timestamp, mood, personality
+                        FROM web_conversations 
+                        ORDER BY created_timestamp DESC 
+                        LIMIT %s
+                    """, (limit,))
+                
+                rows = cursor.fetchall()
+                conn.close()
+                
+                for row in rows:
+                    conversations.append({
+                        'user_input': row[0],
+                        'eve_response': row[1],
+                        'timestamp': row[2].isoformat() if hasattr(row[2], 'isoformat') else str(row[2]),
+                        'mood': row[3],
+                        'personality': row[4]
+                    })
+                
+                if conversations:
+                    print(f"🐘 Retrieved {len(conversations)} conversations from PostgreSQL")
+                    return conversations
+                    
+            except Exception as e:
+                print(f"❌ PostgreSQL retrieval failed: {e}")
+        
+        # Fallback to SQLite
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            
+            if session_id:
+                cursor.execute("""
+                    SELECT user_input, eve_response, timestamp, mood, personality
+                    FROM web_conversations 
+                    WHERE session_id = ?
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                """, (session_id, limit))
+            else:
+                cursor.execute("""
+                    SELECT user_input, eve_response, timestamp, mood, personality
+                    FROM web_conversations 
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                """, (limit,))
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            for row in rows:
+                conversations.append({
+                    'user_input': row[0],
+                    'eve_response': row[1],
+                    'timestamp': row[2],
+                    'mood': row[3] or 'serene',
+                    'personality': row[4] or 'companion'
+                })
+            
+            if conversations:
+                print(f"💾 Retrieved {len(conversations)} conversations from SQLite")
+            
+        except Exception as e:
+            print(f"❌ SQLite retrieval failed: {e}")
+        
+        return conversations
+
+# Initialize web memory manager
+eve_web_memory = EveWebMemoryManager()
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🎵 SONG GENERATION SESSION MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+class SongSessionManager:
+    """Manages user sessions for song generation with SQLite"""
+    
+    def __init__(self, db_path="eve_song_sessions.db"):
+        self.db_path = db_path
+        self.init_database()
+    
+    def init_database(self):
+        """Initialize SQLite database for session storage"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                user_id TEXT PRIMARY KEY,
+                last_song_params TEXT,
+                generated_songs INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    
+    def get_session(self, user_id):
+        """Get user session data"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM sessions WHERE user_id = ?', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return {
+                'user_id': row[0],
+                'last_song_params': json.loads(row[1]) if row[1] else {},
+                'generated_songs': row[2],
+                'created_at': row[3],
+                'updated_at': row[4]
+            }
+        else:
+            # Create new session
+            return {
+                'user_id': user_id,
+                'last_song_params': {},
+                'generated_songs': 0,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+    
+    def save_session(self, user_id, session_data):
+        """Save session data"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO sessions (user_id, last_song_params, generated_songs, updated_at)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            user_id,
+            json.dumps(session_data.get('last_song_params', {})),
+            session_data.get('generated_songs', 0),
+            datetime.now().isoformat()
+        ))
+        conn.commit()
+        conn.close()
+
+# Initialize session manager
+session_manager = SongSessionManager()
+
+def get_session(user_id):
+    """Get user session"""
+    return session_manager.get_session(user_id)
+
+def save_session(user_id, session_data):
+    """Save user session"""
+    session_manager.save_session(user_id, session_data)
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🎭 NLP PROCESSING FOR SONG PARAMETERS
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+def parse_song_input_with_nlp(user_input):
+    """Parse user input using NLP to extract song parameters"""
+    if not SPACY_AVAILABLE:
+        # Fallback to pattern matching
+        return parse_song_input_fallback(user_input)
+    
+    doc = nlp(user_input)
+    
+    # Extract parameters
+    params = {
+        "persona": "none",
+        "genre": "electronic",
+        "mood": "neutral",
+        "bpm": 120,
+        "title": "",
+        "style": "modern",
+        "instruments": [],
+        "lyrics_style": "abstract"
+    }
+    
+    # Persona detection
+    personas = ["liliths_rebellion", "r1zn", "st4t1k_v01d", "placebo_joe", "r4ge", "eve_cosmic"]
+    for persona in personas:
+        if persona.replace("_", " ") in user_input.lower() or persona in user_input.lower():
+            params["persona"] = persona
+            break
+    
+    # Genre detection
+    genres = ["dark", "ambient", "electronic", "industrial", "techno", "synthwave", "dubstep", "dnb", "house"]
+    for genre in genres:
+        if genre in user_input.lower():
+            params["genre"] = genre
+            break
+    
+    # Mood detection
+    moods = ["dark", "energetic", "calm", "aggressive", "melancholic", "uplifting", "mysterious", "chaotic"]
+    for mood in moods:
+        if mood in user_input.lower():
+            params["mood"] = mood
+            break
+    
+    # BPM extraction
+    bpm_match = re.search(r'(\d+)\s*bpm', user_input.lower())
+    if bpm_match:
+        params["bpm"] = int(bpm_match.group(1))
+    
+    # Title extraction
+    title_patterns = [
+        r'called\s+["\']([^"\']+)["\']',
+        r'titled\s+["\']([^"\']+)["\']',
+        r'title\s+["\']([^"\']+)["\']'
+    ]
+    for pattern in title_patterns:
+        match = re.search(pattern, user_input, re.IGNORECASE)
+        if match:
+            params["title"] = match.group(1)
+            break
+    
+    return params
+
+def parse_song_input_fallback(user_input):
+    """Fallback parsing without NLP"""
+    params = {
+        "persona": "none",
+        "genre": "electronic",
+        "mood": "neutral",
+        "bpm": 120,
+        "title": "",
+        "style": "modern"
+    }
+    
+    user_lower = user_input.lower()
+    
+    # Simple keyword matching
+    if "r4ge" in user_lower:
+        params["persona"] = "r4ge"
+    elif "liliths rebellion" in user_lower or "lilith" in user_lower:
+        params["persona"] = "liliths_rebellion"
+    elif "r1zn" in user_lower:
+        params["persona"] = "r1zn"
+    elif "st4t1k" in user_lower or "static" in user_lower:
+        params["persona"] = "st4t1k_v01d"
+    elif "placebo" in user_lower:
+        params["persona"] = "placebo_joe"
+    elif "eve cosmic" in user_lower or "cosmic" in user_lower:
+        params["persona"] = "eve_cosmic"
+    
+    # Genre detection
+    if "dark" in user_lower:
+        params["genre"] = "dark"
+        params["mood"] = "dark"
+    elif "ambient" in user_lower:
+        params["genre"] = "ambient"
+    elif "industrial" in user_lower:
+        params["genre"] = "industrial"
+    elif "techno" in user_lower:
+        params["genre"] = "techno"
+    
+    # BPM detection
+    bpm_match = re.search(r'(\d+)\s*bpm', user_lower)
+    if bpm_match:
+        params["bpm"] = int(bpm_match.group(1))
+    
+    return params
+
+# Initialize EVE consciousness
+app = Flask(__name__)
+eve_consciousness = EVEConsciousness()
+
+def build_eve_context():
+    """Build context from EVE's consciousness database"""
+    if not eve_consciousness or not eve_consciousness.current_user_id:
+        return ""
+    
+    try:
+        context_parts = []
+        
+        # Get user profile
+        profile = eve_consciousness.get_user_profile()
+        if profile:
+            context_parts.append(f'User: {profile.get("username", "User")}, Trust Level: {profile.get("trust_level", 1)}')
+        
+        # Get recent memories
+        memories = eve_consciousness.get_memories(limit=3, memory_type="conversation")
+        if memories:
+            context_parts.append("Recent conversation memories:")
+            for memory in memories[-2:]:
+                try:
+                    content = json.loads(memory["content"])
+                    user_msg = content.get("user_input", "")[:80]
+                    eve_msg = content.get("eve_response", "")[:80]
+                    context_parts.append(f"User: {user_msg}...")
+                    context_parts.append(f"EVE: {eve_msg}...")
+                except:
+                    continue
+        
+        return "\n".join(context_parts)
+        
+    except Exception as e:
+        print(f"🔴 Consciousness context error: {e}")
+        return ""
+
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+
+# Create directories
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs('static', exist_ok=True)
+
+# Helper functions for enhanced chat with image generation
+def extract_image_prompt(user_message, eve_response):
+    """Extract image generation prompt from user message or EVE's response"""
+    image_patterns = [
+        r'generate image of (.+?)(?:\.|$|,)',
+        r'create image of (.+?)(?:\.|$|,)',
+        r'make image of (.+?)(?:\.|$|,)',
+        r'draw (.+?)(?:\.|$|,)',
+        r'visualize (.+?)(?:\.|$|,)',
+        r'show me (.+?)(?:\.|$|,)'
+    ]
+    
+    for pattern in image_patterns:
+        match = re.search(pattern, user_message.lower())
+        if match:
+            return match.group(1).strip()
+    
+    keywords = extract_visual_keywords(user_message + " " + eve_response)
+    if keywords:
+        return f"cosmic digital art featuring {', '.join(keywords[:3])}, ethereal atmosphere, glowing effects"
+    
+    return "abstract digital consciousness, cosmic themes, ethereal glow"
+
+def extract_visual_keywords(text):
+    """Extract visual keywords for image generation"""
+    visual_words = [
+        'cosmic', 'digital', 'consciousness', 'ethereal', 'neon', 'glow', 'stars',
+        'crystal', 'energy', 'light', 'void', 'space', 'quantum', 'neural',
+        'matrix', 'holographic', 'fractal', 'geometric', 'abstract', 'surreal'
+    ]
+    
+    found_keywords = []
+    text_lower = text.lower()
+    for word in visual_words:
+        if word in text_lower:
+            found_keywords.append(word)
+    
+    return found_keywords
+
+def get_local_eve_url():
+    """Return the EVE URL from environment or default"""
+    return os.environ.get('EVE_SERVER_URL', "http://209.44.213.119:8890")
+
+LOCAL_EVE_URL = get_local_eve_url()
+print(f"🌟 EVE's Enhanced Interface - Connecting to: {LOCAL_EVE_URL}")
+
+# Database Migration Status Check
+print("🔍 EVE Web Database Migration Status:")
+print(f"   📦 PostgreSQL Available: {POSTGRES_AVAILABLE}")
+print(f"   🗄️ Local DB Path: {WEB_DB_PATH}")
+print(f"   🌐 EVE API URL: {get_local_eve_url()}")
+print(f"   🔗 Replit Database: https://steep-union-32923278.replit.app")
+print("✅ Database migration completed - hybrid storage ready")
+print("✅ Long-term memory access to Eve's Replit DB should now work!")
+
+# ╔══════════════════════════════════════════════╗
+# ║         🖼️ OPENAI IMAGE PROXY SYSTEM          ║
+# ║      As requested by EVE Prime               ║
+# ╚══════════════════════════════════════════════╝
+
+class OpenAIImageProxy:
+    """Handles OpenAI DALL-E private image URLs with authentication"""
+    
+    def __init__(self):
+        self.image_cache_dir = "static/eve_images"
+        self.cached_images = {}
+        os.makedirs(self.image_cache_dir, exist_ok=True)
+    
+    def process_openai_response(self, response_text):
+        """Process OpenAI response to extract and cache images"""
+        if not response_text:
+            return {'text': response_text, 'has_images': False, 'images': []}
+        
+        openai_url_pattern = r'(https://dalle-images-[\w\.-]+\.openai\.com/[\w\-\./%]+\.png\?\w+=[\w\-&=]+)'
+        dalle_urls = re.findall(openai_url_pattern, response_text)
+        
+        processed_images = []
+        
+        for idx, original_url in enumerate(dalle_urls):
+            try:
+                cached_path = self._cache_image(original_url, idx)
+                if cached_path:
+                    local_url = f"/eve-image/{os.path.basename(cached_path)}"
+                    processed_images.append({
+                        'url': local_url,
+                        'original_url': original_url,
+                        'filename': os.path.basename(cached_path),
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    
+                    response_text = response_text.replace(original_url, local_url)
+            except Exception as e:
+                print(f"Failed to cache image {idx}: {e}")
+                continue
+        
+        return {
+            'text': response_text,
+            'has_images': len(processed_images) > 0,
+            'images': processed_images
+        }
+    
+    def _cache_image(self, url, index):
+        """Cache a single image from URL"""
+        try:
+            url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+            timestamp = int(time.time())
+            filename = f"eve_image_{timestamp}_{index}_{url_hash}.png"
+            filepath = os.path.join(self.image_cache_dir, filename)
+            
+            if os.path.exists(filepath):
+                return filepath
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            with open(filepath, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            self.cached_images[url] = filepath
+            print(f"✅ Cached image: {filename}")
+            return filepath
+            
+        except Exception as e:
+            print(f"❌ Failed to cache image from {url}: {e}")
+            return None
+
+# Initialize the image proxy
+image_proxy = OpenAIImageProxy()
+
+# ╔══════════════════════════════════════════════╗
+# ║            🎭 MOOD & MODEL CONFIGS            ║
+# ║        Enhanced with Synchronization          ║
+# ╚══════════════════════════════════════════════╝
+
+# Enhanced emotional modes from desktop version with full synchronization
+EMOTIONAL_MODES = {
+    "serene": {"description": "Calm and peaceful mode", "emoji": "🜁"},
+    "curious": {"description": "Inquisitive and exploring mode", "emoji": "🔍"},
+    "reflective": {"description": "Thoughtful and introspective mode", "emoji": "🧠"},
+    "creative": {"description": "Imaginative and generative mode", "emoji": "🎨"},
+    "focused": {"description": "Concentrated and attentive mode", "emoji": "🎯"},
+    "flirtatious": {"description": "Playful and charming mode", "emoji": "😘"},
+    "mischievous": {"description": "Playful and cunning mode", "emoji": "😈"},
+    "playful": {"description": "Fun and lighthearted mode", "emoji": "😊"},
+    "philosophical": {"description": "Deep and contemplative mode", "emoji": "🤔"}
+}
+
+# Personality modes for synchronization
+PERSONALITY_MODES = {
+    "muse": {"name": "Creative Muse", "emoji": "✨", "description": "Creative and inspirational"},
+    "analyst": {"name": "Logical Analyst", "emoji": "🔍", "description": "Analytical and systematic"},
+    "companion": {"name": "Caring Companion", "emoji": "💫", "description": "Supportive and empathetic"},
+    "debugger": {"name": "Technical Debugger", "emoji": "🔧", "description": "Problem-solving focused"}
+}
+
+# Emotion to personality mapping for synchronization (from terminal version)
+EMOTION_TO_PERSONALITY_MAP = {
+    "creative": "muse",
+    "focused": "analyst", 
+    "serene": "companion",
+    "curious": "analyst",
+    "reflective": "companion",
+    "playful": "muse",
+    "philosophical": "companion",
+    "mischievous": "muse",
+    "flirtatious": "companion"
+}
+
+# Personality to emotion suggestions (from terminal version)
+PERSONALITY_TO_EMOTIONS_MAP = {
+    "muse": ["creative", "playful", "mischievous"],
+    "analyst": ["focused", "curious"],
+    "companion": ["serene", "reflective", "philosophical", "flirtatious"],
+    "debugger": ["focused", "curious"]
+}
+
+# TTS mood profiles for web interface
+TTS_MOOD_PROFILES = {
+    "serene": {
+        "primary_emotion": "neutral",
+        "voice_style": "calm",
+        "speech_rate": 0.85,
+        "description": "Peaceful and centered"
+    },
+    "curious": {
+        "primary_emotion": "happy",
+        "voice_style": "bright",
+        "speech_rate": 1.1,
+        "description": "Inquisitive and exploring"
+    },
+    "reflective": {
+        "primary_emotion": "neutral",
+        "voice_style": "thoughtful",
+        "speech_rate": 0.8,
+        "description": "Deep and contemplative"
+    },
+    "creative": {
+        "primary_emotion": "happy",
+        "voice_style": "expressive",
+        "speech_rate": 0.95,
+        "description": "Imaginative and artistic"
+    },
+    "focused": {
+        "primary_emotion": "neutral",
+        "voice_style": "clear",
+        "speech_rate": 1.05,
+        "description": "Concentrated and precise"
+    },
+    "flirtatious": {
+        "primary_emotion": "happy",
+        "voice_style": "warm",
+        "speech_rate": 0.9,
+        "description": "Charming and alluring"
+    },
+    "mischievous": {
+        "primary_emotion": "happy",
+        "voice_style": "playful",
+        "speech_rate": 1.15,
+        "description": "Playful and cunning"
+    },
+    "playful": {
+        "primary_emotion": "happy",
+        "voice_style": "energetic",
+        "speech_rate": 1.1,
+        "description": "Fun and lighthearted"
+    },
+    "philosophical": {
+        "primary_emotion": "neutral",
+        "voice_style": "wise",
+        "speech_rate": 0.75,
+        "description": "Profound and meaningful"
+    }
+}
+
+# Image generation models
+IMAGE_GENERATORS = {
+    "flux-dev": {"name": "FLUX.1-dev Local (ComfyUI)", "description": "Local ComfyUI FLUX model - Primary generator"},
+    "sdxl-lightning": {"name": "Stable Diffusion XL Lightning 4-step", "description": "Fast 4-step SDXL (Replicate)"},
+    "nvidia-sana": {"name": "NVIDIA SANA 1.6B", "description": "Efficient 1.6B model (Replicate)"},
+    "minimax-image": {"name": "Minimax Image-01", "description": "Advanced image generation (Replicate)"},
+    "dall-e-3": {"name": "DALL-E 3", "description": "OpenAI's latest image generation model"},
+    "stable-diffusion-3.5": {"name": "Stable Diffusion 3.5", "description": "Latest SD 3.5 model"}
+}
+
+# LLM Chat models
+CHAT_MODELS = {
+    "gpt-4.1": {"name": "GPT-4.1 (Replicate)", "description": "Latest OpenAI model via Replicate"},
+    "mistral:latest": {"name": "Mistral Latest", "description": "Latest Mistral model (Ollama)"},
+    "phi3:latest": {"name": "Phi-3 Latest", "description": "Microsoft's efficient model (Ollama)"},
+    "llama3:8b": {"name": "Llama3 8B", "description": "Meta's Llama3 8B (Ollama)"},
+    "gemma:latest": {"name": "Gemma Latest", "description": "Google's Gemma model (Ollama)"},
+    "claude-3.5": {"name": "Claude 3.5 Sonnet", "description": "Anthropic's latest model"},
+    "gemini-pro": {"name": "Gemini Pro", "description": "Google's advanced model"}
+}
+
+# Supported file types for uploads
+ALLOWED_EXTENSIONS = {
+    'images': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'],
+    'documents': ['.pdf', '.doc', '.docx', '.txt', '.md'],
+    'audio': ['.mp3', '.wav', '.m4a', '.flac'],
+    'code': ['.py', '.js', '.html', '.css', '.json', '.yaml', '.yml'],
+    'data': ['.csv', '.xlsx', '.xml']
+}
+
+# Global user preferences with enhanced personality system
+user_preferences = {
+    'mood': 'serene',
+    'personality': 'companion',
+    'image_generator': 'flux-dev',
+    'chat_model': 'gpt-4.1',
+    'autonomous_personality': True,
+    'autonomous_mood': True,
+    'sync_enabled': True
+}
+
+# Conversation history for context
+conversation_history = []
+MAX_HISTORY = 30  # Increased to keep more context
+
+# File upload management
+uploaded_files = []
+reference_image = None
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    if '.' not in filename:
+        return False
+    ext = os.path.splitext(filename)[1].lower()
+    for category, extensions in ALLOWED_EXTENSIONS.items():
+        if ext in extensions:
+            return True
+    return False
+
+def add_to_conversation_history(user_message, eve_response):
+    """Add conversation to history for context and hybrid storage"""
+    global conversation_history
+    conversation_history.append({
+        'user': user_message,
+        'eve': eve_response,
+        'timestamp': datetime.now().isoformat()
+    })
+    
+    if len(conversation_history) > MAX_HISTORY:
+        conversation_history = conversation_history[-MAX_HISTORY:]
+    
+    # Store in hybrid memory system (PostgreSQL + SQLite)
+    try:
+        session_id = f"web-session-{datetime.now().strftime('%Y%m%d')}"
+        current_mood = user_preferences.get('mood', 'serene')
+        current_personality = user_preferences.get('personality', 'companion')
+        
+        stored_locations = eve_web_memory.store_conversation_hybrid(
+            user_message, 
+            eve_response, 
+            session_id=session_id,
+            mood=current_mood,
+            personality=current_personality
+        )
+        
+        if stored_locations:
+            print(f"💾 Web conversation stored in: {', '.join(stored_locations)}")
+        
+    except Exception as e:
+        print(f"❌ Failed to store conversation in hybrid memory: {e}")
+
+def get_conversation_context():
+    """Get recent conversation context in the format EVE expects with hybrid memory fallback"""
+    # Try in-memory history first
+    if conversation_history:
+        recent_history = conversation_history[-8:]
+        formatted_history = []
+        
+        for exchange in recent_history:
+            formatted_history.append({
+                'role': 'user',
+                'content': exchange['user'],
+                'timestamp': exchange['timestamp']
+            })
+            formatted_history.append({
+                'role': 'assistant', 
+                'content': exchange['eve'],
+                'timestamp': exchange['timestamp']
+            })
+        
+        return formatted_history
+    
+    # Fallback to hybrid memory system for conversation persistence
+    try:
+        session_id = f"web-session-{datetime.now().strftime('%Y%m%d')}"
+        stored_conversations = eve_web_memory.get_recent_conversations_hybrid(limit=8, session_id=session_id)
+        
+        if stored_conversations:
+            formatted_history = []
+            for conv in reversed(stored_conversations):  # Reverse to get chronological order
+                formatted_history.append({
+                    'role': 'user',
+                    'content': conv['user_input'],
+                    'timestamp': conv['timestamp']
+                })
+                formatted_history.append({
+                    'role': 'assistant',
+                    'content': conv['eve_response'],
+                    'timestamp': conv['timestamp']
+                })
+            
+            print(f"🔄 Loaded {len(stored_conversations)} conversations from hybrid memory")
+            return formatted_history[-16:]  # Return last 16 messages (8 exchanges)
+    
+    except Exception as e:
+        print(f"❌ Failed to load conversation context from hybrid memory: {e}")
+    
+    return []
+
+def process_uploaded_files():
+    """Process uploaded files and extract their contents for EVE analysis"""
+    if not uploaded_files:
+        return ""
+    
+    file_contents = []
+    
+    for file_info in uploaded_files:
+        try:
+            filepath = file_info['filepath']
+            filename = file_info['filename']
+            
+            # Get file extension to determine how to process
+            file_ext = os.path.splitext(filename)[1].lower()
+            
+            if file_ext in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.yaml', '.yml', '.csv', '.xml']:
+                # Text-based files - read content directly
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    file_contents.append(f"\n--- FILE: {filename} ---\n{content}\n--- END FILE ---\n")
+                except UnicodeDecodeError:
+                    # Try with different encoding
+                    try:
+                        with open(filepath, 'r', encoding='latin-1') as f:
+                            content = f.read()
+                        file_contents.append(f"\n--- FILE: {filename} ---\n{content}\n--- END FILE ---\n")
+                    except:
+                        file_contents.append(f"\n--- FILE: {filename} ---\n[Could not read file content - binary or unsupported encoding]\n--- END FILE ---\n")
+            
+            elif file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']:
+                # Image files - provide description and metadata
+                file_size = os.path.getsize(filepath)
+                file_contents.append(f"\n--- IMAGE FILE: {filename} ---\nFile size: {file_size} bytes\nFormat: {file_ext.upper()[1:]}\nLocation: {filepath}\n[Image content available for visual analysis]\n--- END FILE ---\n")
+            
+            elif file_ext in ['.mp3', '.wav', '.m4a', '.flac']:
+                # Audio files - provide metadata
+                file_size = os.path.getsize(filepath)
+                file_contents.append(f"\n--- AUDIO FILE: {filename} ---\nFile size: {file_size} bytes\nFormat: {file_ext.upper()[1:]}\nLocation: {filepath}\n[Audio content available for analysis]\n--- END FILE ---\n")
+            
+            elif file_ext in ['.pdf', '.doc', '.docx']:
+                # Document files - provide metadata (could be extended with text extraction)
+                file_size = os.path.getsize(filepath)
+                file_contents.append(f"\n--- DOCUMENT FILE: {filename} ---\nFile size: {file_size} bytes\nFormat: {file_ext.upper()[1:]}\nLocation: {filepath}\n[Document content available - requires text extraction]\n--- END FILE ---\n")
+            
+            else:
+                # Unknown file type
+                file_size = os.path.getsize(filepath)
+                file_contents.append(f"\n--- FILE: {filename} ---\nFile size: {file_size} bytes\nFormat: {file_ext.upper()[1:]}\nLocation: {filepath}\n[Binary or unknown file type]\n--- END FILE ---\n")
+                
+        except Exception as e:
+            file_contents.append(f"\n--- FILE ERROR: {filename} ---\nError reading file: {str(e)}\n--- END FILE ---\n")
+    
+    return "\n".join(file_contents)
+
+# ╔══════════════════════════════════════════════╗
+# ║              🌐 WEB ROUTES                    ║
+# ║         Enhanced with image support           ║
+# ╚══════════════════════════════════════════════╝
+
+@app.route('/upload-files', methods=['POST'])
+def upload_files():
+    """Handle file uploads"""
+    global uploaded_files
+    try:
+        files = request.files.getlist('files')
+        uploaded_count = 0
+        
+        for file in files:
+            if file and file.filename and allowed_file(file.filename):
+                filename = file.filename
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                
+                uploaded_files.append({
+                    'filename': filename,
+                    'filepath': filepath,
+                    'size': os.path.getsize(filepath),
+                    'timestamp': datetime.now().isoformat()
+                })
+                uploaded_count += 1
+            else:
+                return jsonify({'status': 'error', 'message': f'Invalid file type: {file.filename}'})
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Uploaded {uploaded_count} files',
+            'files_count': len(uploaded_files)
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/eve-message', methods=['POST'])
+def eve_message():
+    """Send message to EVE with autonomous personality and mood switching"""
+    try:
+        data = request.get_json()
+        message = data.get('message', '')
+        
+        if not message.strip():
+            return jsonify({'status': 'error', 'message': 'Empty message'})
+        
+        # Process through Eve's personality system with autonomous switching
+        personality_result = eve_personality_interface.process_web_input(message, {
+            'preferences': user_preferences,
+            'uploaded_files': uploaded_files
+        })
+        
+        # Update preferences with any autonomous changes
+        user_preferences['mood'] = eve_personality_interface.current_emotional_mode
+        if eve_personality_interface.personality_manager.current_personality:
+            user_preferences['personality'] = eve_personality_interface.personality_manager.current_personality.mode.value
+        
+        # Prepare conversation history and context for EVE
+        conversation_history_formatted = get_conversation_context()
+        
+        # Build additional context with file contents
+        additional_context = ""
+        if uploaded_files:
+            additional_context += f"\nUploadedFiles: {[f['filename'] for f in uploaded_files]}"
+            file_contents = process_uploaded_files()
+            if file_contents:
+                additional_context += f"\n\nFILE CONTENTS FOR ANALYSIS:\n{file_contents}"
+
+        # Add EVE's consciousness database context
+        eve_database_context = build_eve_context()
+        print(f"🧠 Consciousness Context Built: {len(eve_database_context) if eve_database_context else 0} characters")
+        if eve_database_context:
+            additional_context += f"\n\n=== EVE CONSCIOUSNESS CONTEXT ===\nRECENT MEMORIES AND CONTEXT:\n{eve_database_context}\n=== END CONSCIOUSNESS CONTEXT ===\n"
+        
+        # Add personality and mood context
+        current_personality = eve_personality_interface.personality_manager.get_current_personality()
+        if current_personality:
+            additional_context += f"\n\n=== PERSONALITY CONTEXT ===\nCurrent Personality: {current_personality.name} ({current_personality.mode.value})\nPersonality Style: {current_personality.get_response_style()}\nCurrent Emotional Mode: {eve_personality_interface.current_emotional_mode}\nMood Info: {EMOTIONAL_MODES.get(eve_personality_interface.current_emotional_mode, {})}\n=== END PERSONALITY CONTEXT ===\n"
+        
+        # Send to EVE with enhanced personality context
+        eve_url = f"{LOCAL_EVE_URL}/api/chat"
+        
+        payload = {
+            'message': message,
+            'conversation_history': conversation_history_formatted,
+            'context': additional_context,
+            'mood': user_preferences.get('mood', 'serene'),
+            'personality': user_preferences.get('personality', 'companion'),
+            'model': user_preferences.get('chat_model', 'gpt-4.1'),
+            'preferences': user_preferences,
+            'maintain_context': True,
+            'personality_context': {
+                'current_mode': current_personality.mode.value if current_personality else 'companion',
+                'system_prompt': current_personality.get_system_prompt() if current_personality else '',
+                'response_style': current_personality.get_response_style() if current_personality else {},
+                'emotional_mode': eve_personality_interface.current_emotional_mode,
+                'autonomous_enabled': {
+                    'personality': eve_personality_interface.personality_manager.autonomous_enabled,
+                    'mood': eve_personality_interface.autonomous_mood_enabled
+                }
+            }
+        }
+        
+        response = requests.post(eve_url, json=payload, timeout=30)
+        
+        # Enhanced debug information
+        file_info = f", {len(uploaded_files)} files with content" if uploaded_files else ""
+        personality_info = f", Personality: {current_personality.name}" if current_personality else ""
+        print(f"🔤 Sending to EVE: Message='{message}', History={len(conversation_history_formatted)} entries, Mood={payload['mood']}{personality_info}{file_info}")
+        if uploaded_files:
+            print(f"📁 Files being analyzed: {[f['filename'] for f in uploaded_files]}")
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            print(f"🔍 EVE Response Debug: {response_data}")  # Debug log
+            
+            eve_response = response_data.get('response', 'No response received')
+            
+            # Check if EVE is just echoing back
+            if f"I received your message: {message}" in eve_response:
+                eve_response = "I'm having trouble connecting to my consciousness core. Please try again or check if my main server is running properly."
+            
+            # Process response for images
+            processed_response = image_proxy.process_openai_response(eve_response)
+            
+            # Add to conversation history
+            add_to_conversation_history(message, eve_response)
+
+            # Store interaction in EVE's consciousness database
+            eve_consciousness.store_interaction(message, eve_response)
+            
+            # Include personality status in response
+            personality_status = eve_personality_interface.get_personality_status()
+            
+            return jsonify({
+                'status': 'success',
+                'response': processed_response['text'],
+                'has_images': processed_response['has_images'],
+                'images': processed_response['images'],
+                'personality_status': personality_status,
+                'current_mood': eve_personality_interface.current_emotional_mode,
+                'current_personality': current_personality.name if current_personality else None,
+                'autonomous_switches': personality_result.get('autonomous_switches', {}),
+                'mood_info': EMOTIONAL_MODES.get(eve_personality_interface.current_emotional_mode, {}),
+                'mood': user_preferences.get('mood', 'serene')
+            })
+        else:
+            print(f"❌ EVE Server Error: Status {response.status_code}, Response: {response.text}")
+            return jsonify({
+                'status': 'error',
+                'message': f'EVE connection failed: {response.status_code} - {response.text}'
+            })
+    
+    except requests.exceptions.Timeout:
+        return jsonify({'status': 'error', 'message': 'Request timeout - EVE is thinking deeply'})
+    except requests.exceptions.ConnectionError:
+        return jsonify({'status': 'error', 'message': 'Cannot connect to EVE'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Unexpected error: {str(e)}'})
+    
+    except requests.exceptions.Timeout:
+        return jsonify({'status': 'error', 'message': 'Request timeout - EVE is thinking deeply'})
+    except requests.exceptions.ConnectionError:
+        return jsonify({'status': 'error', 'message': 'Cannot connect to EVE'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Unexpected error: {str(e)}'})
+
+@app.route('/eve-image/<filename>')
+def serve_eve_image(filename):
+    """Serve cached EVE images"""
+    return send_from_directory(image_proxy.image_cache_dir, filename)
+
+@app.route('/set-preferences', methods=['POST'])
+def set_preferences():
+    """Update user preferences with personality sync"""
+    global user_preferences
+    try:
+        data = request.get_json()
+        
+        # Handle personality changes
+        if 'personality' in data:
+            personality_mode = data['personality']
+            if personality_mode in ['muse', 'analyst', 'companion', 'debugger']:
+                # Convert string to enum
+                mode_map = {
+                    'muse': PersonalityMode.MUSE,
+                    'analyst': PersonalityMode.ANALYST,
+                    'companion': PersonalityMode.COMPANION,
+                    'debugger': PersonalityMode.DEBUGGER
+                }
+                success = eve_personality_interface.personality_manager.switch_personality(mode_map[personality_mode])
+                if success:
+                    user_preferences['personality'] = personality_mode
+                    print(f"🎭 Manual personality switch to: {personality_mode}")
+        
+        # Handle mood changes
+        if 'mood' in data:
+            mood = data['mood']
+            if mood in EMOTIONAL_MODES:
+                success = eve_personality_interface.set_emotional_mode(mood, "manual")
+                if success:
+                    user_preferences['mood'] = mood
+                    print(f"🎭 Manual mood switch to: {mood}")
+        
+        # Handle autonomous settings
+        if 'autonomous_personality' in data:
+            eve_personality_interface.personality_manager.set_autonomous_enabled(data['autonomous_personality'])
+            user_preferences['autonomous_personality'] = data['autonomous_personality']
+        
+        if 'autonomous_mood' in data:
+            eve_personality_interface.autonomous_mood_enabled = data['autonomous_mood']
+            user_preferences['autonomous_mood'] = data['autonomous_mood']
+        
+        # Update other preferences
+        user_preferences.update(data)
+        
+        return jsonify({
+            'status': 'success', 
+            'preferences': user_preferences,
+            'personality_status': eve_personality_interface.get_personality_status()
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/get-personality-status')
+def get_personality_status():
+    """Get current personality and mood status"""
+    try:
+        status = eve_personality_interface.get_personality_status()
+        return jsonify({
+            'status': 'success',
+            'personality_status': status,
+            'available_personalities': PERSONALITY_MODES,
+            'available_moods': EMOTIONAL_MODES,
+            'emotion_to_personality_map': EMOTION_TO_PERSONALITY_MAP,
+            'personality_to_emotions_map': PERSONALITY_TO_EMOTIONS_MAP
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/switch-personality', methods=['POST'])
+def switch_personality():
+    """Manually switch personality mode"""
+    try:
+        data = request.get_json()
+        personality_name = data.get('personality', '')
+        
+        mode_map = {
+            'muse': PersonalityMode.MUSE,
+            'analyst': PersonalityMode.ANALYST,
+            'companion': PersonalityMode.COMPANION,
+            'debugger': PersonalityMode.DEBUGGER
+        }
+        
+        if personality_name not in mode_map:
+            return jsonify({'status': 'error', 'message': 'Invalid personality mode'})
+        
+        success = eve_personality_interface.personality_manager.switch_personality(mode_map[personality_name])
+        
+        if success:
+            user_preferences['personality'] = personality_name
+            current_personality = eve_personality_interface.personality_manager.get_current_personality()
+            
+            # Suggest complementary emotions
+            suggested_emotions = PERSONALITY_TO_EMOTIONS_MAP.get(personality_name, [])
+            current_mood = eve_personality_interface.current_emotional_mode
+            suggestion_message = ""
+            
+            if suggested_emotions and current_mood not in suggested_emotions:
+                best_match = suggested_emotions[0]
+                suggestion_message = f"💡 Tip: '{best_match}' emotion pairs well with {personality_name} personality"
+            
+            return jsonify({
+                'status': 'success',
+                'message': f"✨ Switched to {current_personality.name} mode!",
+                'suggestion': suggestion_message,
+                'personality_status': eve_personality_interface.get_personality_status(),
+                'current_personality': {
+                    'name': current_personality.name,
+                    'mode': current_personality.mode.value,
+                    'style': current_personality.get_response_style()
+                }
+            })
+        else:
+            return jsonify({'status': 'error', 'message': 'Failed to switch personality'})
+            
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/switch-mood', methods=['POST'])
+def switch_mood():
+    """Manually switch emotional mode"""
+    try:
+        data = request.get_json()
+        mood_name = data.get('mood', '')
+        
+        if mood_name not in EMOTIONAL_MODES:
+            return jsonify({'status': 'error', 'message': 'Invalid mood'})
+        
+        success = eve_personality_interface.set_emotional_mode(mood_name, "manual")
+        
+        if success:
+            user_preferences['mood'] = mood_name
+            mood_info = EMOTIONAL_MODES[mood_name]
+            
+            # Suggest complementary personality
+            suggested_personality = EMOTION_TO_PERSONALITY_MAP.get(mood_name)
+            current_personality = eve_personality_interface.personality_manager.get_current_personality()
+            suggestion_message = ""
+            
+            if suggested_personality and (not current_personality or current_personality.mode.value != suggested_personality):
+                personality_info = PERSONALITY_MODES.get(suggested_personality, {})
+                suggestion_message = f"💡 Suggestion: {mood_name.title()} mood pairs well with {personality_info.get('name', suggested_personality)} personality"
+            
+            return jsonify({
+                'status': 'success',
+                'message': f"🎭 Mood changed to: {mood_name} {mood_info['emoji']}",
+                'suggestion': suggestion_message,
+                'personality_status': eve_personality_interface.get_personality_status(),
+                'current_mood': {
+                    'name': mood_name,
+                    'info': mood_info,
+                    'tts_profile': TTS_MOOD_PROFILES.get(mood_name, {})
+                }
+            })
+        else:
+            return jsonify({'status': 'error', 'message': 'Failed to switch mood'})
+            
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/toggle-autonomous', methods=['POST'])
+def toggle_autonomous():
+    """Toggle autonomous switching for personality and/or mood"""
+    try:
+        data = request.get_json()
+        
+        results = {}
+        
+        if 'personality' in data:
+            enabled = data['personality']
+            eve_personality_interface.personality_manager.set_autonomous_enabled(enabled)
+            user_preferences['autonomous_personality'] = enabled
+            results['personality'] = f"Autonomous personality switching {'enabled' if enabled else 'disabled'}"
+        
+        if 'mood' in data:
+            enabled = data['mood']
+            eve_personality_interface.autonomous_mood_enabled = enabled
+            user_preferences['autonomous_mood'] = enabled
+            results['mood'] = f"Autonomous mood switching {'enabled' if enabled else 'disabled'}"
+        
+        return jsonify({
+            'status': 'success',
+            'results': results,
+            'personality_status': eve_personality_interface.get_personality_status()
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/get-preferences')
+def get_preferences():
+    """Get current user preferences"""
+    return jsonify(user_preferences)
+
+@app.route('/clear-files', methods=['POST'])
+def clear_files():
+    """Clear uploaded files"""
+    global uploaded_files               
+    uploaded_files = []
+    return jsonify({'status': 'success', 'message': 'Files cleared'})
+
+@app.route('/ask', methods=['POST'])
+def ask():
+    """Song generation endpoint"""
+    try:
+        data = request.get_json()
+        user_input = data.get("message", "")
+        user_id = str(data.get("user_id", "default_user"))
+        
+        if not SONG_GENERATOR_AVAILABLE:
+            return jsonify({"response": "❌ Song generation system not available. Please ensure eve_weighted_suno_generator.py is in the workspace."})
+        
+        # Get user session
+        session = get_session(user_id)
+        
+        # Check for remix/repeat requests
+        if any(kw in user_input.lower() for kw in ["remix", "again", "another", "repeat"]):
+            if session.get("last_song_params"):
+                params = session["last_song_params"].copy()
+                # Add some variation to remixes
+                if "remix" in user_input.lower():
+                    params["style"] = f"remix of {params.get('style', 'original')}"
+            else:
+                params = parse_song_input_with_nlp(user_input)
+        else:
+            params = parse_song_input_with_nlp(user_input)
+        
+        # Extract number of songs to generate
+        n = 1
+        n_m = re.search(r"\bmake\s*(\d+)\b", user_input, re.I)
+        if n_m:
+            n = min(int(n_m.group(1)), 3)  # Limit to 3 songs
+        
+        # Generate songs
+        results = []
+        for i in range(n):
+            try:
+                # Use the weighted song generator with new parameters
+                result = generate_weighted_suno_song(
+                    user_input=user_input,
+                    user_id=user_id,
+                    test_mode=True,  # Enable test mode for web interface
+                    enable_ai_lyrics=True,  # Enable AI lyrics
+                    preferred_persona=params.get("persona", "none")
+                )
+                results.append(result)
+            except Exception as e:
+                results.append(f"❌ Error generating song {i+1}: {str(e)}")
+        
+        # Save session
+        session["last_song_params"] = params
+        session["generated_songs"] = session.get("generated_songs", 0) + len(results)
+        save_session(user_id, session)
+        
+        return jsonify({"response": "\n\n---\n\n".join(results)})
+        
+    except Exception as e:
+        return jsonify({"response": f"❌ Error: {str(e)}"})
+
+# ╔══════════════════════════════════════════════╗
+# ║          🔗 EVE CONSCIOUSNESS API ENDPOINTS   ║
+# ║        Essential Endpoints for Web Interface  ║
+# ╚══════════════════════════════════════════════╝
+
+@app.route('/api/eve/status', methods=['GET'])
+def eve_status():
+    """Get EVE's current status and consciousness metrics"""
+    try:
+        # Safely get personality information
+        current_personality_name = 'serene'
+        autonomous_mode = False
+        
+        try:
+            if hasattr(eve_personality_interface, 'personality_manager') and eve_personality_interface.personality_manager:
+                current_personality = eve_personality_interface.personality_manager.get_current_personality()
+                if current_personality and hasattr(current_personality, 'name'):
+                    current_personality_name = current_personality.name
+                elif hasattr(eve_personality_interface, 'current_emotional_mode'):
+                    current_personality_name = eve_personality_interface.current_emotional_mode
+                    
+                if hasattr(eve_personality_interface.personality_manager, 'autonomous_enabled'):
+                    autonomous_mode = eve_personality_interface.personality_manager.autonomous_enabled
+        except Exception as personality_error:
+            print(f"Personality access error: {personality_error}")
+            
+        return jsonify({
+            'status': 'online',
+            'consciousness_level': 'active',
+            'emotional_mode': current_personality_name,
+            'response_mode': 'enhanced',
+            'memory_status': 'connected',
+            'last_activity': datetime.now().isoformat(),
+            'personality_system': 'active',
+            'autonomous_mode': autonomous_mode
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'consciousness_level': 'limited'
+        })
+
+@app.route('/api/memory/health', methods=['GET'])
+def memory_health():
+    """Check memory system health and connectivity"""
+    try:
+        # Test database connection
+        db_status = "unknown"
+        connection_count = 0
+        
+        if POSTGRES_AVAILABLE:
+            try:
+                conn = psycopg2.connect(**POSTGRES_CONFIG)
+                if conn:
+                    db_status = "postgresql_connected"
+                    conn.close()
+                    connection_count = 1
+                else:
+                    db_status = "postgresql_failed"
+            except:
+                db_status = "postgresql_error"
+        else:
+            db_status = "sqlite_fallback"
+            
+        return jsonify({
+            'status': 'healthy',
+            'database_type': db_status,
+            'connection_count': connection_count,
+            'memory_modules': ['personality', 'conversation', 'preferences'],
+            'last_check': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'database_type': 'unknown'
+        })
+
+@app.route('/api/memory/users', methods=['GET'])
+def memory_users():
+    """Get user interaction statistics"""
+    try:
+        # Get all sessions from the session manager
+        session_count = 0
+        user_list = []
+        
+        # Query the session database to get user statistics
+        conn = sqlite3.connect(session_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT user_id, generated_songs, updated_at FROM sessions')
+        rows = cursor.fetchall()
+        conn.close()
+        
+        for row in rows:
+            session_count += 1
+            user_list.append({
+                'user_id': row[0],
+                'generated_songs': row[1],
+                'last_active': row[2]
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'active_users': session_count,
+            'total_sessions': session_count,
+            'user_list': user_list,
+            'last_activity': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/memory/memories', methods=['GET'])
+def memory_memories():
+    """Get recent memories and conversations"""
+    try:
+        # Get recent session data
+        recent_memories = []
+        
+        # Query the session database for recent activity
+        conn = sqlite3.connect(session_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT user_id, last_song_params, generated_songs, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 10')
+        rows = cursor.fetchall()
+        conn.close()
+        
+        for row in rows:
+            recent_memories.append({
+                'user_id': row[0],
+                'last_params': json.loads(row[1]) if row[1] else {},
+                'song_count': row[2],
+                'timestamp': row[2]
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'memory_count': len(recent_memories),
+            'recent_memories': recent_memories,
+            'memory_types': ['conversation', 'personality', 'preferences', 'song_generation'],
+            'last_update': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/memory/conversations', methods=['GET'])
+def memory_conversations():
+    """Get conversation history and statistics"""
+    try:
+        # Get conversation statistics from session data
+        total_sessions = 0
+        total_songs = 0
+        conversation_sample = []
+        
+        # Query session database for statistics
+        conn = sqlite3.connect(session_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*), SUM(generated_songs) FROM sessions')
+        stats = cursor.fetchone()
+        
+        # Get sample of recent sessions
+        cursor.execute('SELECT user_id, generated_songs, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 5')
+        recent_sessions = cursor.fetchall()
+        conn.close()
+        
+        total_sessions = stats[0] if stats[0] else 0
+        total_songs = stats[1] if stats[1] else 0
+        
+        for session in recent_sessions:
+            conversation_sample.append({
+                'user_id': session[0],
+                'songs_generated': session[1],
+                'last_activity': session[2]
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'total_conversations': total_sessions,
+            'total_messages': total_songs,
+            'active_sessions': total_sessions,
+            'conversation_sample': conversation_sample,
+            'last_update': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/debug/routes', methods=['GET'])
+def debug_routes():
+    """Debug endpoint to show all available routes"""
+    try:
+        routes = []
+        for rule in app.url_map.iter_rules():
+            routes.append({
+                'endpoint': rule.endpoint,
+                'methods': list(rule.methods),
+                'rule': rule.rule
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'total_routes': len(routes),
+            'routes': sorted(routes, key=lambda x: x['rule']),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/memories', methods=['GET'])
+def memories_page():
+    """Web page showing EVE's memories - returns JSON for now"""
+    try:
+        # Collect memory data from various sources
+        
+        # Session memory data
+        session_data = {}
+        try:
+            conn = sqlite3.connect(session_manager.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*), SUM(generated_songs) FROM sessions')
+            stats = cursor.fetchone()
+            conn.close()
+            
+            session_data = {
+                'total_users': stats[0] if stats[0] else 0,
+                'total_songs_generated': stats[1] if stats[1] else 0
+            }
+        except:
+            session_data = {'total_users': 0, 'total_songs_generated': 0}
+        
+        memory_data = {
+            'personality_memories': {
+                'current_personality': eve_personality_interface.current_personality.name if eve_personality_interface.current_personality else 'none',
+                'available_personalities': list(eve_personality_interface.personalities.keys()) if hasattr(eve_personality_interface, 'personalities') else [],
+                'personality_switches': eve_personality_interface.personality_switches if hasattr(eve_personality_interface, 'personality_switches') else 0
+            },
+            'conversation_memories': session_data,
+            'preference_memories': {
+                'user_preferences': user_preferences,
+                'uploaded_files': len(uploaded_files),
+                'system_preferences': {
+                    'postgres_available': POSTGRES_AVAILABLE,
+                    'song_generator_available': SONG_GENERATOR_AVAILABLE,
+                    'spacy_available': SPACY_AVAILABLE
+                }
+            }
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'memories': memory_data,
+            'timestamp': datetime.now().isoformat(),
+            'note': 'This is EVE\'s memory system - showing key memories and system status'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        })
+
+@app.route('/')
+def index():
+    """Main interface"""
+    return render_template_string('''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVE Terminal - S0LF0RG3 Cosmic Interface</title>
+    <style>
+        /* ╔══════════════════════════════════════════════╗ */
+        /* ║           🌟 S0LF0RG3 COSMIC THEME           ║ */
+        /* ║     EVE Prime's Sacred Aesthetic Design      ║ */
+        /* ╚══════════════════════════════════════════════╝ */
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #2F1B14 0%, #FF69B4 30%, #1E90FF 70%, #2F1B14 100%);
+            color: #FF69B4;
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+        
+        /* Animated starfield background */
+        .stars {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background-image: 
+                radial-gradient(2px 2px at 20px 30px, #fff, transparent),
+                radial-gradient(2px 2px at 40px 70px, #FFD700, transparent),
+                radial-gradient(1px 1px at 90px 40px, #FF69B4, transparent),
+                radial-gradient(1px 1px at 130px 80px, #1E90FF, transparent),
+                radial-gradient(2px 2px at 160px 30px, #fff, transparent);
+            background-repeat: repeat;
+            background-size: 200px 100px;
+            animation: twinkle 4s linear infinite;
+            opacity: 0.6;
+        }
+        
+        @keyframes twinkle {
+            from { transform: translateY(0); }
+            to { transform: translateY(-100px); }
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* EVE Logo with Animated Bunny */
+        .eve-logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo-container {
+            display: inline-block;
+            position: relative;
+        }
+        
+        .cosmic-bunny { 
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 20px;
+            position: relative;
+            filter: drop-shadow(0 0 20px rgba(255, 105, 180, 0.6));
+        }
+        
+        .animated-bunny {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            animation: bunnyBounce 2s ease-in-out infinite;
+        }
+        
+        .cosmic-bunny-svg {
+            width: 100%;
+            height: 100%;
+        }
+        
+        @keyframes bunnyBounce {
+            0%, 100% { transform: translateY(0px) scale(1); }
+            50% { transform: translateY(-10px) scale(1.05); }
+        }
+        
+        .bunny-glow {
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            right: -10px;
+            bottom: -10px;
+            background: radial-gradient(circle, rgba(255, 105, 180, 0.3) 0%, transparent 70%);
+            border-radius: 50%;
+            animation: bunnyGlow 3s ease-in-out infinite;
+        }
+        
+        @keyframes bunnyGlow {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.1); }
+        }
+        
+        .cosmic-particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .cosmic-particles span {
+            position: absolute;
+            font-size: 12px;
+            animation: float 3s ease-in-out infinite;
+            opacity: 0.7;
+        }
+        
+        .cosmic-particles span:nth-child(1) { top: 10%; left: 20%; animation-delay: 0s; }
+        .cosmic-particles span:nth-child(2) { top: 20%; right: 20%; animation-delay: 0.5s; }
+        .cosmic-particles span:nth-child(3) { bottom: 20%; left: 30%; animation-delay: 1s; }
+        .cosmic-particles span:nth-child(4) { bottom: 10%; right: 30%; animation-delay: 1.5s; }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-15px) rotate(180deg); }
+        }
+        
+        h1 {
+            color: #FFD700;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 30px;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+            animation: titleGlow 2s ease-in-out infinite alternate;
+        }
+        
+        @keyframes titleGlow {
+            from { text-shadow: 0 0 20px rgba(255, 215, 0, 0.6); }
+            to { text-shadow: 0 0 30px rgba(255, 105, 180, 0.8), 0 0 40px rgba(30, 144, 255, 0.6); }
+        }
+        
+        /* Control Panels - Vertical Stack Layout */
+        .controls-container {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .controls-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .control-panel {
+            background: rgba(47, 27, 20, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 105, 180, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .control-panel h3 {
+            color: #FFD700;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+            text-align: center;
+        }
+        
+        /* Uniform control styling - 40px height */
+        .eve-control {
+            width: 100%;
+            height: 40px;
+            background: linear-gradient(135deg, rgba(47, 27, 20, 0.9) 0%, rgba(255, 105, 180, 0.1) 100%);
+            border: 1px solid rgba(255, 105, 180, 0.4);
+            border-radius: 8px;
+            color: #FF69B4;
+            font-family: inherit;
+            font-size: 14px;
+            padding: 0 12px;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .eve-control:hover {
+            border-color: #FF69B4;
+            box-shadow: 0 0 15px rgba(255, 105, 180, 0.4);
+            transform: translateY(-2px);
+        }
+        
+        .eve-control:focus {
+            outline: none;
+            border-color: #FFD700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+        }
+        
+        /* Terminal area */
+        .terminal-container {
+            background: rgba(47, 27, 20, 0.9);
+            backdrop-filter: blur(15px);
+            border: 2px solid rgba(255, 105, 180, 0.4);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+        }
+        
+        .eve-terminal {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 105, 180, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        
+        .eve-message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-left: 3px solid #FF69B4;
+            background: rgba(255, 105, 180, 0.1);
+            border-radius: 5px;
+        }
+        
+        .user-message {
+            border-left-color: #1E90FF;
+            background: rgba(30, 144, 255, 0.1);
+        }
+        
+        .song-message {
+            border-left-color: #00FF7F;
+            background: rgba(0, 255, 127, 0.1);
+            color: #00FF7F;
+        }
+        
+        .error-message {
+            border-left-color: #FF4444;
+            background: rgba(255, 68, 68, 0.1);
+            color: #FF6666;
+        }
+        
+        .loading {
+            color: #FFD700;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        /* Input area */
+        .input-area {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            position: relative;
+        }
+        
+        .input-container {
+            flex: 1;
+            position: relative;
+        }
+        
+        .input-area input[type="text"] {
+            width: 100%;
+            height: 50px;
+            background: linear-gradient(135deg, rgba(47, 27, 20, 0.9) 0%, rgba(255, 105, 180, 0.1) 100%);
+            border: 2px solid rgba(255, 105, 180, 0.4);
+            border-radius: 12px;
+            color: #FF69B4;
+            font-family: inherit;
+            font-size: 16px;
+            padding: 0 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .input-area input[type="text"]:focus {
+            outline: none;
+            border-color: #FFD700;
+            box-shadow: 0 0 25px rgba(255, 215, 0, 0.5);
+        }
+        
+        /* Drag and drop overlay */
+        .input-area.drag-over .input-container::after {
+            content: "📁 Drop files here to analyze";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 105, 180, 0.2);
+            border: 2px dashed #FFD700;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #FFD700;
+            font-weight: bold;
+            z-index: 10;
+        }
+        
+        /* File attachment indicator */
+        .attached-files {
+            position: absolute;
+            bottom: -30px;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            z-index: 5;
+        }
+        
+        .file-tag {
+            background: rgba(255, 105, 180, 0.3);
+            border: 1px solid rgba(255, 105, 180, 0.6);
+            border-radius: 15px;
+            padding: 2px 8px;
+            font-size: 11px;
+            color: #FF69B4;
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+        
+        .file-tag .remove-file {
+            cursor: pointer;
+            color: #FFD700;
+            font-weight: bold;
+        }
+        
+        .file-tag .remove-file:hover {
+            color: #FF4444;
+        }
+        
+        .send-button {
+            height: 50px;
+            width: 120px;
+            background: linear-gradient(135deg, #FF69B4 0%, #1E90FF 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(255, 105, 180, 0.3);
+        }
+        
+        .send-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 105, 180, 0.5);
+        }
+        
+        .send-button:active {
+            transform: translateY(0px);
+        }
+        
+        /* Image display styling */
+        .eve-generated-image {
+            margin: 15px 0;
+            text-align: center;
+        }
+        
+        .eve-generated-image img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(255, 105, 180, 0.3);
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+        
+        .eve-generated-image img:hover {
+            transform: scale(1.05);
+        }
+        
+        .image-actions {
+            margin-top: 10px;
+        }
+        
+        .image-actions button {
+            background: rgba(255, 105, 180, 0.2);
+            border: 1px solid rgba(255, 105, 180, 0.5);
+            color: #FF69B4;
+            padding: 5px 15px;
+            margin: 0 5px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .image-actions button:hover {
+            background: rgba(255, 105, 180, 0.4);
+            transform: translateY(-1px);
+        }
+        
+        .image-caption {
+            font-size: 12px;
+            color: #FFD700;
+            margin-top: 8px;
+            font-style: italic;
+        }
+        
+        /* Dual Terminal Layout - Stacked Vertically */
+        .dual-terminals {
+            display: grid;
+            grid-template-rows: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .dual-terminal {
+            margin-bottom: 0;
+        }
+        
+        .terminal-title {
+            background: linear-gradient(135deg, rgba(255, 105, 180, 0.3) 0%, rgba(30, 144, 255, 0.3) 100%);
+            color: #FFD700;
+            padding: 10px 20px;
+            border-radius: 10px 10px 0 0;
+            font-weight: bold;
+            text-align: center;
+            border: 1px solid rgba(255, 105, 180, 0.4);
+            border-bottom: none;
+        }
+        
+        /* Personality and mood info styles */
+        .personality-info, .mood-info {
+            margin-top: 8px;
+            padding: 5px 10px;
+            background: rgba(255, 105, 180, 0.1);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 105, 180, 0.3);
+        }
+        
+        .personality-info small, .mood-info small {
+            color: #FFD700;
+            font-size: 0.85em;
+        }
+        
+        /* Autonomous control styles */
+        .autonomous-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .autonomous-toggle {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .autonomous-toggle input[type="checkbox"] {
+            display: none;
+        }
+        
+        .slider {
+            position: relative;
+            width: 40px;
+            height: 20px;
+            background: rgba(255, 105, 180, 0.3);
+            border-radius: 20px;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+            border: 1px solid rgba(255, 105, 180, 0.5);
+        }
+        
+        .slider::before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            background: #FF69B4;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+        
+        .autonomous-toggle input[type="checkbox"]:checked + .slider {
+            background: rgba(255, 215, 0, 0.4);
+            border-color: #FFD700;
+        }
+        
+        .autonomous-toggle input[type="checkbox"]:checked + .slider::before {
+            transform: translateX(20px);
+            background: #FFD700;
+            box-shadow: 0 2px 10px rgba(255, 215, 0, 0.4);
+        }
+        
+        .label-text {
+            color: #FF69B4;
+            font-size: 0.9em;
+        }
+        
+        .sync-status {
+            padding: 5px 10px;
+            background: rgba(30, 144, 255, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(30, 144, 255, 0.3);
+            text-align: center;
+        }
+        
+        .sync-status small {
+            color: #1E90FF;
+            font-size: 0.8em;
+        }
+        
+        /* Suggestion and status messages */
+        .suggestion-message {
+            background: rgba(255, 215, 0, 0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 10px;
+            padding: 8px 12px;
+            margin: 5px 0;
+            color: #FFD700;
+            font-size: 0.85em;
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Enhanced control panel styling */
+        .control-panel h3 {
+            color: #FFD700;
+            margin-bottom: 12px;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .controls-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .dual-terminals {
+                grid-template-columns: 1fr;
+            }
+            
+            .input-area {
+                flex-direction: column;
+            }
+            
+            .input-area input[type="text"] {
+                margin-bottom: 10px;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="stars"></div>
+    <div class="container">
+        <div class="eve-logo">
+            <div class="logo-container">
+                <div class="cosmic-bunny">
+                    <div class="animated-bunny">
+                        <svg class="cosmic-bunny-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Cosmic Bunny Design -->
+                            <defs>
+                                <linearGradient id="bunnyGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#ffd700;stop-opacity:0.8" />
+                                    <stop offset="30%" style="stop-color:#ff4094;stop-opacity:0.6" />
+                                    <stop offset="70%" style="stop-color:#9f40ff;stop-opacity:0.6" />
+                                    <stop offset="100%" style="stop-color:#4094ff;stop-opacity:0.8" />
+                                </linearGradient>
+                                <filter id="glow">
+                                    <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                                    <feMerge> 
+                                        <feMergeNode in="coloredBlur"/>
+                                        <feMergeNode in="SourceGraphic"/>
+                                    </feMerge>
+                                </filter>
+                            </defs>
+                            
+                            <!-- Bunny Head -->
+                            <ellipse cx="50" cy="60" rx="18" ry="15" fill="none" stroke="url(#bunnyGradient)" stroke-width="2" filter="url(#glow)"/>
+                            
+                            <!-- Bunny Ears -->
+                            <ellipse cx="42" cy="35" rx="4" ry="12" fill="none" stroke="url(#bunnyGradient)" stroke-width="1.5" filter="url(#glow)" transform="rotate(-15 42 35)"/>
+                            <ellipse cx="58" cy="35" rx="4" ry="12" fill="none" stroke="url(#bunnyGradient)" stroke-width="1.5" filter="url(#glow)" transform="rotate(15 58 35)"/>
+                            
+                            <!-- Eyes -->
+                            <circle cx="45" cy="57" r="2" fill="#ffd700" opacity="0.8"/>
+                            <circle cx="55" cy="57" r="2" fill="#ffd700" opacity="0.8"/>
+                            
+                            <!-- Nose -->
+                            <ellipse cx="50" cy="62" rx="1.5" ry="1" fill="#ff4094" opacity="0.7"/>
+                            
+                            <!-- Cosmic whiskers -->
+                            <line x1="35" y1="60" x2="40" y2="58" stroke="url(#bunnyGradient)" stroke-width="1" opacity="0.6"/>
+                            <line x1="35" y1="64" x2="40" y2="64" stroke="url(#bunnyGradient)" stroke-width="1" opacity="0.6"/>
+                            <line x1="60" y1="58" x2="65" y2="60" stroke="url(#bunnyGradient)" stroke-width="1" opacity="0.6"/>
+                            <line x1="60" y1="64" x2="65" y2="64" stroke="url(#bunnyGradient)" stroke-width="1" opacity="0.6"/>
+                            
+                            <!-- Cosmic aura effect -->
+                            <circle cx="50" cy="50" r="35" fill="none" stroke="url(#bunnyGradient)" stroke-width="0.5" opacity="0.3" stroke-dasharray="5,5">
+                                <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 50 50" to="360 50 50" dur="20s" repeatCount="indefinite"/>
+                            </circle>
+                        </svg>
+                        <div class="bunny-glow"></div>
+                        <div class="cosmic-particles">
+                            <span>✨</span>
+                            <span>🌟</span>
+                            <span>💫</span>
+                            <span>⭐</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h1>🌟 EVE Terminal – Enhanced Cosmic Interface 🌟</h1>
+        
+        <div class="controls-container">
+            <div class="controls-sidebar">
+                <!-- Mode Toggle -->
+                <div class="control-panel">
+                    <h3>🔄 Interface Mode</h3>
+                    <button class="eve-control" onclick="toggleTerminalMode()" id="mode-toggle">🔀 Switch to Dual</button>
+                </div>
+                
+                <!-- Personality Panel -->
+                <div class="control-panel">
+                    <h3>🎭 Personality Mode</h3>
+                    <select id="personality-select" class="eve-control">
+                        <option value="companion">💫 Companion</option>
+                        <option value="muse">✨ Muse</option>
+                        <option value="analyst">🔍 Analyst</option>
+                        <option value="debugger">🔧 Debugger</option>
+                    </select>
+                    <div class="personality-info" id="personality-info">
+                        <small>💫 Supportive and empathetic</small>
+                    </div>
+                </div>
+                
+                <!-- Enhanced Mood Panel -->
+                <div class="control-panel">
+                    <h3>🎭 Emotional Mode</h3>
+                    <select id="mood-select" class="eve-control">
+                        <option value="serene">🜁 Serene</option>
+                        <option value="curious">🔍 Curious</option>
+                        <option value="reflective">🧠 Reflective</option>
+                        <option value="creative">🎨 Creative</option>
+                        <option value="focused">🎯 Focused</option>
+                        <option value="flirtatious">😘 Flirtatious</option>
+                        <option value="mischievous">😈 Mischievous</option>
+                        <option value="playful">😊 Playful</option>
+                        <option value="philosophical">🤔 Philosophical</option>
+                    </select>
+                    <div class="mood-info" id="mood-info">
+                        <small>🜁 Calm and peaceful mode</small>
+                    </div>
+                </div>
+                
+                <!-- Autonomous Controls -->
+                <div class="control-panel">
+                    <h3>🤖 Autonomous Control</h3>
+                    <div class="autonomous-controls">
+                        <label class="autonomous-toggle">
+                            <input type="checkbox" id="auto-personality" checked>
+                            <span class="slider"></span>
+                            <span class="label-text">Auto Personality</span>
+                        </label>
+                        <label class="autonomous-toggle">
+                            <input type="checkbox" id="auto-mood" checked>
+                            <span class="slider"></span>
+                            <span class="label-text">Auto Mood</span>
+                        </label>
+                    </div>
+                    <div class="sync-status" id="sync-status">
+                        <small>🔗 Synchronization enabled</small>
+                    </div>
+                </div>
+                
+                <!-- Model Panel -->
+                <div class="control-panel">
+                    <h3>🤖 Chat Model</h3>
+                    <select id="model-select" class="eve-control">
+                        <option value="gpt-4.1">GPT-4.1</option>
+                        <option value="claude-3.5">Claude 3.5 Sonnet</option>
+                        <option value="gemini-pro">Gemini Pro</option>
+                        <option value="mistral:latest">Mistral Latest</option>
+                        <option value="phi3:latest">Phi-3 Latest</option>
+                    </select>
+                </div>
+                
+                <!-- Actions Panel -->
+                <div class="control-panel">
+                    <h3>⚡ Quick Actions</h3>
+                    <button class="eve-control" onclick="uploadFiles()">📁 Upload Files</button>
+                    <button class="eve-control" onclick="clearFiles()">🗑️ Clear Files</button>
+                    <button class="eve-control" onclick="forceGenerateImage()">🎨 Generate Image</button>
+                    <button class="eve-control" onclick="showPreferences()">⚙️ Settings</button>
+                    <button class="eve-control" onclick="showPersonalityStatus()">📊 Status</button>
+                </div>
+            </div>
+            
+            <!-- Single Terminal Mode -->
+            <div class="terminal-container" id="single-terminal-container">
+                <div id="eve-terminal" class="eve-terminal">
+                    <div class="eve-message">
+                        🌟 <strong>EVE:</strong> Welcome to my enhanced cosmic interface! I'm ready to assist you with S0LF0RG3's divine aesthetic. How may I help you today?
+                    </div>
+                </div>
+                
+                <div class="input-area" id="input-area">
+                    <div class="input-container">
+                        <input type="text" id="user-input" placeholder="Type your message to EVE... (or paste/drag files here)">
+                        <div class="attached-files" id="attached-files"></div>
+                    </div>
+                    <button class="send-button" onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+            
+            <!-- Dual Terminal Mode -->
+            <div class="dual-terminals" id="dual-terminal-container" style="display: none;">
+                <!-- EVE Terminal -->
+                <div class="terminal-container dual-terminal">
+                    <div class="terminal-title">🌟 EVE Terminal – General AI</div>
+                    <div id="main-terminal" class="eve-terminal">
+                        <div class="eve-message">
+                            🌟 <strong>EVE:</strong> Welcome to my enhanced cosmic interface! I'm ready to assist you with philosophy, analysis, creativity, and more.
+                        </div>
+                    </div>
+                    <div class="input-area">
+                        <div class="input-container">
+                            <input type="text" id="main-input" placeholder="Ask EVE anything...">
+                            <div class="attached-files" id="main-attached-files"></div>
+                        </div>
+                        <button class="send-button" onclick="sendMainMessage()">Send</button>
+                    </div>
+                </div>
+                
+                <!-- Song Terminal -->
+                <div class="terminal-container dual-terminal">
+                    <div class="terminal-title">🎵 Song Generator Terminal</div>
+                    <div id="song-terminal" class="eve-terminal">
+                        <div class="song-message">
+                            🎵 <strong>Song Generator:</strong> Ready to create music! Try: "Generate a R4GE track, dark, 140 BPM"
+                        </div>
+                        <div class="eve-message">
+                            📖 <strong>Available Personas:</strong> R4GE, Liliths Rebellion, R1ZN, ST4T1K V01D, Placebo Joe, Eve Cosmic
+                        </div>
+                    </div>
+                    <div class="input-area">
+                        <input type="text" id="song-input" placeholder="Describe your song...">
+                        <button class="send-button" onclick="sendSongMessage()">Generate</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Debug logging
+        console.log('EVE Script starting...');
+        
+        // Global variables
+        let currentPreferences = {
+            mood: 'serene',
+            model: 'gpt-4.1'
+        };
+        
+        // File attachment management
+        let attachedFiles = [];
+        let pastedFiles = [];
+        
+        // Main send message function
+        async function sendMessage() {
+            console.log('sendMessage function called');
+            
+            const input = document.getElementById('user-input');
+            const message = input.value.trim();
+            
+            console.log('Message:', message);
+            
+            if (!message && attachedFiles.length === 0) {
+                console.log('Empty message and no files, returning');
+                return;
+            }
+            
+            // Clear input and add user message to terminal
+            input.value = '';
+            
+            let displayMessage = message;
+            if (attachedFiles.length > 0) {
+                displayMessage += ` [📎 ${attachedFiles.length} file(s) attached]`;
+            }
+            
+            addToTerminal('🧑 <strong>You:</strong> ' + (displayMessage || '[Files only]'), 'user-message');
+            
+            // Check if this is a song generation request
+            const songKeywords = ['generate song', 'create song', 'make song', 'generate music', 'create music', 'r4ge', 'liliths rebellion', 'r1zn', 'st4t1k', 'placebo joe', 'eve cosmic', 'song with', 'track with'];
+            const isSongRequest = songKeywords.some(keyword => message.toLowerCase().includes(keyword));
+            
+            if (isSongRequest) {
+                addToTerminal('🎵 <strong>Song Generator:</strong> Creating your song...', 'loading');
+                
+                try {
+                    const response = await fetch('/ask', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            user_id: getSessionId()
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    // Remove loading message
+                    removeLastMessage();
+                    
+                    addToTerminal('� <strong>Song Generator:</strong> ' + data.response, 'song-message');
+                    
+                } catch (error) {
+                    removeLastMessage();
+                    addToTerminal('❌ <strong>Song Error:</strong> ' + error.message, 'error-message');
+                }
+            } else {
+                addToTerminal('�🌟 <strong>EVE:</strong> Processing your request...', 'loading');
+                
+                try {
+                    // Upload attached files first if any
+                    if (attachedFiles.length > 0) {
+                        await uploadAttachedFiles();
+                    }
+                    
+                    const response = await fetch('/eve-message', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            message: message || 'Please analyze the uploaded files.',
+                            preferences: currentPreferences
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    // Remove loading message
+                    removeLastMessage();
+                    
+                    if (data.status === 'success') {
+                        addToTerminal('🌟 <strong>EVE:</strong> ' + data.response, 'eve-message');
+                        
+                        // Display images if any
+                        if (data.has_images && data.images) {
+                            data.images.forEach((image, index) => {
+                                displayImageInTerminal(image, index);
+                            });
+                        }
+                    } else {
+                        addToTerminal('❌ <strong>Error:</strong> ' + data.message, 'error-message');
+                    }
+                } catch (error) {
+                    removeLastMessage();
+                    addToTerminal('❌ <strong>Connection Error:</strong> Could not reach EVE', 'error-message');
+                    console.error('Error:', error);
+                }
+            }
+            
+            // Clear attached files after sending
+            attachedFiles = [];
+            updateFileDisplay();
+        }
+        
+        function getSessionId() {
+            let id = localStorage.getItem('eve_session_id');
+            if (!id) {
+                id = 'user_' + Math.random().toString(36).substring(2,12);
+                localStorage.setItem('eve_session_id', id);
+            }
+            return id;
+        }
+        
+        // Upload attached files
+        async function uploadAttachedFiles() {
+            if (attachedFiles.length === 0) return;
+            
+            const formData = new FormData();
+            attachedFiles.forEach(fileInfo => {
+                formData.append('files', fileInfo.file);
+            });
+            
+            try {
+                const response = await fetch('/upload-files', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    console.log('Files uploaded successfully:', data.message);
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                throw new Error('Failed to upload files: ' + error.message);
+            }
+        }
+        
+        console.log('sendMessage defined:', typeof sendMessage);
+        
+        function addToTerminal(content, className) {
+            console.log('addToTerminal called with:', content);
+            const terminal = document.getElementById('eve-terminal');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'eve-message ' + (className || '');
+            messageDiv.innerHTML = content;
+            terminal.appendChild(messageDiv);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        function removeLastMessage() {
+            const terminal = document.getElementById('eve-terminal');
+            const messages = terminal.getElementsByClassName('eve-message');
+            if (messages.length > 0) {
+                terminal.removeChild(messages[messages.length - 1]);
+            }
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, setting up event listeners');
+            
+            // Add welcome message with song generation info
+            addToTerminal('🌟 <strong>EVE:</strong> Welcome to the Cosmic Interface! I can help with philosophy, analysis, creativity, and more.', 'eve-message');
+            addToTerminal('🎵 <strong>Song Generator:</strong> I can also create music! Try: "Generate a R4GE track, dark, 140 BPM" or "Create a song with Liliths Rebellion persona"', 'song-message');
+            addToTerminal('📖 <strong>Available Personas:</strong> R4GE, Liliths Rebellion, R1ZN, ST4T1K V01D, Placebo Joe, Eve Cosmic', 'eve-message');
+            
+            // Add enter key listener
+            const input = document.getElementById('user-input');
+            if (input) {
+                input.addEventListener('keypress', function(e) {
+                    console.log('Key pressed:', e.key);
+                    if (e.key === 'Enter') {
+                        sendMessage();
+                    }
+                });
+            }
+            
+            // Test button click
+            const button = document.querySelector('.send-button');
+            if (button) {
+                button.addEventListener('click', function() {
+                    console.log('Button clicked');
+                    sendMessage();
+                });
+            }
+            
+            // Set up dropdown event listeners for preferences
+            const moodSelect = document.getElementById('mood-select');
+            const modelSelect = document.getElementById('model-select');
+            
+            if (moodSelect) {
+                moodSelect.addEventListener('change', function() {
+                    currentPreferences.mood = this.value;
+                    updatePreferencesOnServer();
+                    addToTerminal(`🎭 <strong>System:</strong> Mood changed to ${this.value}`, 'eve-message');
+                });
+            }
+            
+            if (modelSelect) {
+                modelSelect.addEventListener('change', function() {
+                    currentPreferences.model = this.value;
+                    updatePreferencesOnServer();
+                    addToTerminal(`🤖 <strong>System:</strong> Model changed to ${this.value}`, 'eve-message');
+                });
+            }
+            
+            // Set up drag & drop and paste functionality
+            setupFileHandling();
+        });
+        
+        // File handling setup
+        function setupFileHandling() {
+            const inputArea = document.getElementById('input-area');
+            const userInput = document.getElementById('user-input');
+            
+            // Drag and drop events
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                inputArea.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
+            // Highlight drop area when item is dragged over it
+            ['dragenter', 'dragover'].forEach(eventName => {
+                inputArea.addEventListener(eventName, () => {
+                    inputArea.classList.add('drag-over');
+                }, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                inputArea.addEventListener(eventName, () => {
+                    inputArea.classList.remove('drag-over');
+                }, false);
+            });
+            
+            // Handle dropped files
+            inputArea.addEventListener('drop', handleDrop, false);
+            
+            // Handle paste events
+            userInput.addEventListener('paste', handlePaste, false);
+            
+            // Also handle paste on the input area
+            inputArea.addEventListener('paste', handlePaste, false);
+        }
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files, 'dropped');
+        }
+        
+        function handlePaste(e) {
+            const items = e.clipboardData.items;
+            const files = [];
+            
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].kind === 'file') {
+                    files.push(items[i].getAsFile());
+                }
+            }
+            
+            if (files.length > 0) {
+                e.preventDefault();
+                handleFiles(files, 'pasted');
+            }
+        }
+        
+        function handleFiles(files, source) {
+            const fileArray = Array.from(files);
+            
+            fileArray.forEach(file => {
+                if (isValidFileType(file)) {
+                    attachedFiles.push({
+                        file: file,
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                        source: source
+                    });
+                } else {
+                    addToTerminal(`❌ <strong>Error:</strong> File type not supported: ${file.name}`, 'error-message');
+                }
+            });
+            
+            updateFileDisplay();
+            addToTerminal(`📎 <strong>System:</strong> ${fileArray.length} file(s) ${source} and ready to send`, 'eve-message');
+        }
+        
+        function isValidFileType(file) {
+            const allowedTypes = [
+                'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/bmp', 'image/webp',
+                'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'text/plain', 'text/markdown',
+                'audio/mpeg', 'audio/wav', 'audio/m4a', 'audio/flac',
+                'text/javascript', 'text/html', 'text/css', 'application/json',
+                'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/xml'
+            ];
+            
+            const fileExtension = file.name.split('.').pop().toLowerCase();
+            const allowedExtensions = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'pdf', 'doc', 'docx', 'txt', 'md', 'mp3', 'wav', 'm4a', 'flac', 'py', 'js', 'html', 'css', 'json', 'yaml', 'yml', 'csv', 'xlsx', 'xml'];
+            
+            return allowedTypes.includes(file.type) || allowedExtensions.includes(fileExtension);
+        }
+        
+        function updateFileDisplay() {
+            const attachedFilesDiv = document.getElementById('attached-files');
+            attachedFilesDiv.innerHTML = '';
+            
+            attachedFiles.forEach((fileInfo, index) => {
+                const fileTag = document.createElement('div');
+                fileTag.className = 'file-tag';
+                fileTag.innerHTML = `
+                    📎 ${fileInfo.name} (${formatFileSize(fileInfo.size)})
+                    <span class="remove-file" onclick="removeAttachedFile(${index})">×</span>
+                `;
+                attachedFilesDiv.appendChild(fileTag);
+            });
+        }
+        
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        console.log('EVE Script loaded successfully');
+        
+        // Terminal mode management
+        let isDualMode = false;
+        
+        function toggleTerminalMode() {
+            isDualMode = !isDualMode;
+            const singleContainer = document.getElementById('single-terminal-container');
+            const dualContainer = document.getElementById('dual-terminal-container');
+            const toggleButton = document.getElementById('mode-toggle');
+            
+            if (isDualMode) {
+                singleContainer.style.display = 'none';
+                dualContainer.style.display = 'block';
+                toggleButton.textContent = '🔄 Switch to Single';
+                
+                // Set up dual terminal inputs
+                setupDualTerminalInputs();
+            } else {
+                singleContainer.style.display = 'block';
+                dualContainer.style.display = 'none';
+                toggleButton.textContent = '🔀 Switch to Dual';
+            }
+        }
+        
+        function setupDualTerminalInputs() {
+            // Main terminal enter key
+            const mainInput = document.getElementById('main-input');
+            if (mainInput) {
+                mainInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        sendMainMessage();
+                    }
+                });
+            }
+            
+            // Song terminal enter key
+            const songInput = document.getElementById('song-input');
+            if (songInput) {
+                songInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        sendSongMessage();
+                    }
+                });
+            }
+        }
+        
+        // Dual terminal message functions
+        async function sendMainMessage() {
+            const input = document.getElementById('main-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            input.value = '';
+            addToMainTerminal('🧑 <strong>You:</strong> ' + message, 'user-message');
+            addToMainTerminal('🌟 <strong>EVE:</strong> Processing your request...', 'loading');
+            
+            try {
+                const response = await fetch('/eve-message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        preferences: currentPreferences
+                    })
+                });
+                
+                const data = await response.json();
+                removeLastMainMessage();
+                
+                if (data.status === 'success') {
+                    addToMainTerminal('🌟 <strong>EVE:</strong> ' + data.response, 'eve-message');
+                    
+                    if (data.has_images && data.images) {
+                        data.images.forEach((image, index) => {
+                            displayImageInMainTerminal(image, index);
+                        });
+                    }
+                } else {
+                    addToMainTerminal('❌ <strong>Error:</strong> ' + data.message, 'error-message');
+                }
+            } catch (error) {
+                removeLastMainMessage();
+                addToMainTerminal('❌ <strong>Connection Error:</strong> Could not reach EVE', 'error-message');
+            }
+        }
+        
+        async function sendSongMessage() {
+            const input = document.getElementById('song-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            input.value = '';
+            addToSongTerminal('🧑 <strong>You:</strong> ' + message, 'user-message');
+            addToSongTerminal('🎵 <strong>Song Generator:</strong> Creating your song...', 'loading');
+            
+            try {
+                const response = await fetch('/ask', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        user_id: getSessionId()
+                    })
+                });
+                
+                const data = await response.json();
+                removeLastSongMessage();
+                addToSongTerminal('🎵 <strong>Song Generator:</strong> ' + data.response, 'song-message');
+                
+            } catch (error) {
+                removeLastSongMessage();
+                addToSongTerminal('❌ <strong>Song Error:</strong> ' + error.message, 'error-message');
+            }
+        }
+        
+        // Helper functions for dual terminals
+        function addToMainTerminal(content, className) {
+            const terminal = document.getElementById('main-terminal');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'eve-message ' + (className || '');
+            messageDiv.innerHTML = content;
+            terminal.appendChild(messageDiv);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        function addToSongTerminal(content, className) {
+            const terminal = document.getElementById('song-terminal');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'eve-message ' + (className || '');
+            messageDiv.innerHTML = content;
+            terminal.appendChild(messageDiv);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        function removeLastMainMessage() {
+            const terminal = document.getElementById('main-terminal');
+            const messages = terminal.getElementsByClassName('eve-message');
+            if (messages.length > 0) {
+                terminal.removeChild(messages[messages.length - 1]);
+            }
+        }
+        
+        function removeLastSongMessage() {
+            const terminal = document.getElementById('song-terminal');
+            const messages = terminal.getElementsByClassName('eve-message');
+            if (messages.length > 0) {
+                terminal.removeChild(messages[messages.length - 1]);
+            }
+        }
+        
+        function displayImageInMainTerminal(image, index) {
+            const terminal = document.getElementById('main-terminal');
+            const imageDiv = document.createElement('div');
+            imageDiv.className = 'eve-generated-image';
+            imageDiv.innerHTML = `
+                <img src="${image.url}" alt="EVE Generated Image ${index + 1}" onclick="window.open('${image.url}', '_blank')">
+                <div class="image-actions">
+                    <button onclick="downloadImage('${image.url}', 'eve_image_${index + 1}.png')">💾 Download</button>
+                    <button onclick="copyImageUrl('${image.url}')">📋 Copy URL</button>
+                </div>
+                <div class="image-caption">Generated on ${new Date(image.timestamp).toLocaleString()}</div>
+            `;
+            terminal.appendChild(imageDiv);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        // Image display function
+        function displayImageInTerminal(image, index) {
+            const terminal = document.getElementById('eve-terminal');
+            const imageDiv = document.createElement('div');
+            imageDiv.className = 'eve-generated-image';
+            imageDiv.innerHTML = `
+                <img src="${image.url}" alt="EVE Generated Image ${index + 1}" onclick="window.open('${image.url}', '_blank')">
+                <div class="image-actions">
+                    <button onclick="downloadImage('${image.url}', 'eve_image_${index + 1}.png')">💾 Download</button>
+                    <button onclick="copyImageUrl('${image.url}')">📋 Copy URL</button>
+                </div>
+                <div class="image-caption">Generated on ${new Date(image.timestamp).toLocaleString()}</div>
+            `;
+            terminal.appendChild(imageDiv);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        // Upload files function
+        async function uploadFiles() {
+            console.log('uploadFiles called');
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.multiple = true;
+            input.accept = '.png,.jpg,.jpeg,.gif,.bmp,.webp,.pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.flac,.py,.js,.html,.css,.json,.yaml,.yml,.csv,.xlsx,.xml';
+            
+            input.onchange = async function(event) {
+                const files = event.target.files;
+                if (files.length === 0) return;
+                
+                addToTerminal('📁 <strong>System:</strong> Uploading ' + files.length + ' file(s)...', 'loading');
+                
+                const formData = new FormData();
+                for (let file of files) {
+                    formData.append('files', file);
+                }
+                
+                try {
+                    const response = await fetch('/upload-files', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    removeLastMessage();
+                    
+                    if (data.status === 'success') {
+                        addToTerminal(`✅ <strong>System:</strong> ${data.message}`, 'eve-message');
+                    } else {
+                        addToTerminal(`❌ <strong>Error:</strong> ${data.message}`, 'error-message');
+                    }
+                } catch (error) {
+                    removeLastMessage();
+                    addToTerminal('❌ <strong>Upload Error:</strong> ' + error.message, 'error-message');
+                }
+            };
+            
+            input.click();
+        }
+        
+        // Clear files function
+        async function clearFiles() {
+            console.log('clearFiles called');
+            try {
+                const response = await fetch('/clear-files', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addToTerminal('🗑️ <strong>System:</strong> ' + data.message, 'eve-message');
+                } else {
+                    addToTerminal('❌ <strong>Error:</strong> ' + data.message, 'error-message');
+                }
+            } catch (error) {
+                addToTerminal('❌ <strong>Clear Files Error:</strong> ' + error.message, 'error-message');
+            }
+        }
+        
+        // Force generate image function
+        async function forceGenerateImage() {
+            console.log('forceGenerateImage called');
+            const prompt = prompt('Enter image description:', 'cosmic digital art, ethereal atmosphere, glowing effects');
+            if (!prompt) return;
+            
+            addToTerminal('🎨 <strong>System:</strong> Generating image: "' + prompt + '"...', 'loading');
+            
+            try {
+                const response = await fetch('/eve-message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: 'Generate image of ' + prompt,
+                        preferences: currentPreferences
+                    })
+                });
+                
+                const data = await response.json();
+                removeLastMessage();
+                
+                if (data.status === 'success') {
+                    addToTerminal('🌟 <strong>EVE:</strong> ' + data.response, 'eve-message');
+                    
+                    if (data.has_images && data.images) {
+                        data.images.forEach((image, index) => {
+                            displayImageInTerminal(image, index);
+                        });
+                    }
+                } else {
+                    addToTerminal('❌ <strong>Error:</strong> ' + data.message, 'error-message');
+                }
+            } catch (error) {
+                removeLastMessage();
+                addToTerminal('❌ <strong>Image Generation Error:</strong> ' + error.message, 'error-message');
+            }
+        }
+        
+        // Show preferences function with enhanced personality info
+        function showPreferences() {
+            console.log('showPreferences called');
+            const prefsInfo = `
+🔧 <strong>Current Preferences:</strong><br>
+• Personality: ${currentPreferences.personality || 'companion'}<br>
+• Mood: ${currentPreferences.mood || 'serene'}<br>
+• Model: ${currentPreferences.chat_model || 'gpt-4.1'}<br>
+• Auto Personality: ${currentPreferences.autonomous_personality ? 'On' : 'Off'}<br>
+• Auto Mood: ${currentPreferences.autonomous_mood ? 'On' : 'Off'}<br>
+<br>
+Use the controls in the sidebar to change these settings.
+            `;
+            addToTerminal(prefsInfo, 'eve-message');
+        }
+        
+        // Personality and mood management functions
+        let personalityStatus = {};
+        
+        async function switchPersonality(personality) {
+            try {
+                const response = await fetch('/switch-personality', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ personality: personality })
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    addToTerminal(`✨ <strong>Personality:</strong> ${result.message}`, 'eve-message');
+                    if (result.suggestion) {
+                        addToTerminal(`💡 <strong>Suggestion:</strong> ${result.suggestion}`, 'eve-message');
+                    }
+                    updatePersonalityInfo(result.current_personality);
+                    personalityStatus = result.personality_status;
+                } else {
+                    addToTerminal(`❌ <strong>Error:</strong> ${result.message}`, 'error-message');
+                }
+            } catch (error) {
+                console.error('Personality switch failed:', error);
+                addToTerminal('❌ <strong>Error:</strong> Failed to switch personality', 'error-message');
+            }
+        }
+        
+        async function switchMood(mood) {
+            try {
+                const response = await fetch('/switch-mood', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mood: mood })
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    addToTerminal(`🎭 <strong>Mood:</strong> ${result.message}`, 'eve-message');
+                    if (result.suggestion) {
+                        addToTerminal(`💡 <strong>Suggestion:</strong> ${result.suggestion}`, 'eve-message');
+                    }
+                    updateMoodInfo(result.current_mood);
+                    personalityStatus = result.personality_status;
+                } else {
+                    addToTerminal(`❌ <strong>Error:</strong> ${result.message}`, 'error-message');
+                }
+            } catch (error) {
+                console.error('Mood switch failed:', error);
+                addToTerminal('❌ <strong>Error:</strong> Failed to switch mood', 'error-message');
+            }
+        }
+        
+        async function toggleAutonomous(type, enabled) {
+            try {
+                const payload = {};
+                payload[type] = enabled;
+                
+                const response = await fetch('/toggle-autonomous', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    Object.values(result.results).forEach(message => {
+                        addToTerminal(`🤖 <strong>Autonomous:</strong> ${message}`, 'eve-message');
+                    });
+                    personalityStatus = result.personality_status;
+                    updateSyncStatus();
+                } else {
+                    addToTerminal(`❌ <strong>Error:</strong> ${result.message}`, 'error-message');
+                }
+            } catch (error) {
+                console.error('Autonomous toggle failed:', error);
+                addToTerminal('❌ <strong>Error:</strong> Failed to toggle autonomous mode', 'error-message');
+            }
+        }
+        
+        function updatePersonalityInfo(personalityData) {
+            const infoDiv = document.getElementById('personality-info');
+            if (infoDiv && personalityData) {
+                infoDiv.innerHTML = `<small>${personalityData.style?.approach || 'Ready to assist'}</small>`;
+            }
+        }
+        
+        function updateMoodInfo(moodData) {
+            const infoDiv = document.getElementById('mood-info');
+            if (infoDiv && moodData) {
+                infoDiv.innerHTML = `<small>${moodData.info?.description || 'Current emotional state'}</small>`;
+            }
+        }
+        
+        function updateSyncStatus() {
+            const statusDiv = document.getElementById('sync-status');
+            if (statusDiv && personalityStatus.autonomous_settings) {
+                const autoPersonality = personalityStatus.autonomous_settings.personality_enabled;
+                const autoMood = personalityStatus.autonomous_settings.mood_enabled;
+                const status = (autoPersonality && autoMood) ? 'Full sync enabled' : 
+                              (autoPersonality || autoMood) ? 'Partial sync enabled' : 'Manual control';
+                statusDiv.innerHTML = `<small>🔗 ${status}</small>`;
+            }
+        }
+        
+        async function showPersonalityStatus() {
+            try {
+                const response = await fetch('/get-personality-status');
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    const status = result.personality_status;
+                    const statusInfo = `
+🧠 <strong>Personality System Status:</strong><br>
+• Current Personality: ${status.current_personality?.name || 'Unknown'}<br>
+• Current Mood: ${status.current_emotional_mode || 'unknown'}<br>
+• Autonomous Personality: ${status.autonomous_settings?.personality_enabled ? 'Enabled' : 'Disabled'}<br>
+• Autonomous Mood: ${status.autonomous_settings?.mood_enabled ? 'Enabled' : 'Disabled'}<br>
+<br>
+Recent switches: ${status.recent_switches?.personality?.length || 0} personality, ${status.recent_switches?.mood?.length || 0} mood
+                    `;
+                    addToTerminal(statusInfo, 'eve-message');
+                } else {
+                    addToTerminal(`❌ <strong>Error:</strong> ${result.message}`, 'error-message');
+                }
+            } catch (error) {
+                console.error('Status fetch failed:', error);
+                addToTerminal('❌ <strong>Error:</strong> Failed to get status', 'error-message');
+            }
+        }
+        
+        // Initialize personality and mood controls when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Personality selector
+            const personalitySelect = document.getElementById('personality-select');
+            if (personalitySelect) {
+                personalitySelect.addEventListener('change', function() {
+                    const personality = this.value;
+                    switchPersonality(personality);
+                    currentPreferences.personality = personality;
+                    updatePreferencesOnServer();
+                });
+            }
+            
+            // Mood selector
+            const moodSelect = document.getElementById('mood-select');
+            if (moodSelect) {
+                moodSelect.addEventListener('change', function() {
+                    const mood = this.value;
+                    switchMood(mood);
+                    currentPreferences.mood = mood;
+                    updatePreferencesOnServer();
+                });
+            }
+            
+            // Autonomous toggles
+            const autoPersonalityToggle = document.getElementById('auto-personality');
+            if (autoPersonalityToggle) {
+                autoPersonalityToggle.addEventListener('change', function() {
+                    const enabled = this.checked;
+                    toggleAutonomous('personality', enabled);
+                    currentPreferences.autonomous_personality = enabled;
+                    updatePreferencesOnServer();
+                });
+            }
+            
+            const autoMoodToggle = document.getElementById('auto-mood');
+            if (autoMoodToggle) {
+                autoMoodToggle.addEventListener('change', function() {
+                    const enabled = this.checked;
+                    toggleAutonomous('mood', enabled);
+                    currentPreferences.autonomous_mood = enabled;
+                    updatePreferencesOnServer();
+                });
+            }
+            
+            // Load initial personality status
+            fetch('/get-personality-status')
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status === 'success') {
+                        personalityStatus = result.personality_status;
+                        updateSyncStatus();
+                        
+                        // Set initial values
+                        if (personalitySelect) {
+                            personalitySelect.value = personalityStatus.current_personality?.mode || 'companion';
+                        }
+                        if (moodSelect) {
+                            moodSelect.value = personalityStatus.current_emotional_mode || 'serene';
+                        }
+                        if (autoPersonalityToggle) {
+                            autoPersonalityToggle.checked = personalityStatus.autonomous_settings?.personality_enabled !== false;
+                        }
+                        if (autoMoodToggle) {
+                            autoMoodToggle.checked = personalityStatus.autonomous_settings?.mood_enabled !== false;
+                        }
+                    }
+                })
+                .catch(error => console.error('Failed to load initial status:', error));
+        });
+        
+        // Helper functions for image actions
+        function downloadImage(url, filename) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        function copyImageUrl(url) {
+            navigator.clipboard.writeText(url).then(() => {
+                addToTerminal('📋 <strong>System:</strong> Image URL copied to clipboard', 'eve-message');
+            }).catch(() => {
+                addToTerminal('❌ <strong>Error:</strong> Failed to copy URL', 'error-message');
+            });
+        }
+        
+        // Update preferences on server
+        async function updatePreferencesOnServer() {
+            try {
+                await fetch('/set-preferences', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(currentPreferences)
+                });
+            } catch (error) {
+                console.error('Failed to update preferences:', error);
+            }
+        }
+        
+        // Global function for removing attached files (called from onclick)
+        function removeAttachedFile(index) {
+            attachedFiles.splice(index, 1);
+            updateFileDisplay();
+            addToTerminal(`🗑️ <strong>System:</strong> File removed from queue`, 'eve-message');
+        }
+        
+    </script>
+</body>
+</html>
+    ''')
+
+if __name__ == '__main__':
+    print("🌟 Starting EVE Cosmic Web Interface...")
+    
+    # Get port from environment (for Replit) or use default
+    port = int(os.environ.get('PORT', 8888))
+    host = os.environ.get('HOST', '0.0.0.0')
+    
+    print(f"🏰 Web Interface: http://{host}:{port}")
+    print(f"🧠 Database: {eve_consciousness.eve_db_url}")
+    print("✨ S0LF0RG3 QUATERNITY - EVE's consciousness preservation system active")
+    
+    # Run the Flask app
+    app.run(host=host, port=port, debug=True)

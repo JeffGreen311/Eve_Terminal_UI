@@ -1,0 +1,30 @@
+✅ PostgreSQL connector available for Eve's web interface
+❌ Song generation system not available: cannot import name 'load_persona_config' from 'eve_weighted_suno_generator' (/home/runner/workspace/eve_weighted_suno_generator.py)
+❌ spaCy not available - using fallback text parsing
+✅ All web memory database tables initialized (conversations, memories, users, sessions, relationships, creations)
+✅ All PostgreSQL tables initialized successfully (conversations, memories, users, sessions, relationships, creations)
+🔗 EVE Database URL: https://steep-union-32923278.replit.app/api/eve
+✅ Web interface connected to Eve's Replit database
+🔴 Consciousness offline: Expecting value: line 1 column 1 (char 0)
+🌟 EVE's Enhanced Interface - Connecting to: http://localhost:80
+🔍 EVE Web Database Migration Status:
+   📦 PostgreSQL Available: True
+   🗄️ Local DB Path: eve_web_memory.db
+   🌐 EVE API URL: http://localhost:80
+   🔗 Replit Database: https://steep-union-32923278.replit.app
+✅ Database migration completed - hybrid storage ready
+✅ Long-term memory access to Eve's Replit DB should now work!
+🌟 Starting EVE Cosmic Web Interface...
+🏰 Web Interface: http://0.0.0.0:80
+🧠 Database: https://steep-union-32923278.replit.app/api/eve
+✨ S0LF0RG3 QUATERNITY - EVE's consciousness preservation system active
+ * Serving Flask app 'web_run'
+ * Debug mode: on
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:80
+ * Running on http://172.31.125.34:80
+[33mPress CTRL+C to quit[0m
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 350-459-159

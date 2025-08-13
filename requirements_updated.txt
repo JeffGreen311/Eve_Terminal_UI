@@ -1,0 +1,11 @@
+flask
+requests
+psycopg2-binary
+python-dotenv
+gunicorn
+waitress
+Pillow
+torch
+torchvision
+torchaudio
+spacy
