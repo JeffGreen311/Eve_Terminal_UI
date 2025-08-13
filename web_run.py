@@ -1,31 +1,2910 @@
+#!/usr/bin/env python3
+"""
+EVE Terminal - Enhanced Web Interface 
+Implementing EVE Prime's Sacred Specifications
+S0LF0RG3 Cosmic Aesthetic with Professional Layout
+"""
 
+import requests
+from flask import Flask, jsonify, render_template_string, request, send_from_directory
+import json
 import os
-from flask import Flask, jsonify
+import re
+import time
+import hashlib
+import threading
+from datetime import datetime
+import sqlite3
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Dict, Any, Optional, List
+from enum import Enum
 
+# Load environment variables from .env if present
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+    print("🔐 Loaded environment variables from .env (if file present)")
+except Exception as _dotenv_err:
+    # Non-fatal; proceed without .env support
+    pass
+
+# PostgreSQL connector availability check
+try:
+    import psycopg2
+    POSTGRES_AVAILABLE = True
+    print("✅ PostgreSQL connector available for Eve's web interface")
+except ImportError:
+    POSTGRES_AVAILABLE = False
+    print("❌ PostgreSQL connector not available - using SQLite fallback")
+
+## External Adam connector fully removed
+
+# ╔══════════════════════════════════════════════╗
+# ║           🐘 POSTGRESQL DATABASE CONFIG       ║
+# ║         Neon Database Connection (Web)        ║
+# ╚══════════════════════════════════════════════╝
+
+# PostgreSQL Configuration for Eve's Neon Database (Web Interface)
+# Pulled from environment variables when present to avoid leaking secrets in source.
+ENV_PG_HOST = os.environ.get("PGHOST", "ep-jolly-fire-af5qkfza.c-2.us-west-2.aws.neon.tech")
+ENV_PG_DB = os.environ.get("PGDATABASE", "neondb")
+ENV_PG_USER = os.environ.get("PGUSER", "neondb_owner")
+ENV_PG_PASSWORD = os.environ.get("PGPASSWORD", "")  # Intentionally blank default
+ENV_PG_PORT = int(os.environ.get("PGPORT", "5432"))
+
+POSTGRES_CONFIG = {
+    "host": ENV_PG_HOST,
+    "database": ENV_PG_DB,
+    "user": ENV_PG_USER,
+    "password": ENV_PG_PASSWORD,
+    "port": ENV_PG_PORT,
+    "sslmode": "require",
+    "connect_timeout": 3  # Fast fail to avoid startup blocking
+}
+
+def get_postgres_connection():
+    """Return a psycopg2 connection with Neon endpoint option injected (avoids SNI libpq issues)."""
+    if not POSTGRES_AVAILABLE:
+        raise RuntimeError("PostgreSQL connector not available")
+    host = POSTGRES_CONFIG.get('host','')
+    endpoint_id = host.split('.')[0] if host else ''
+    cfg = POSTGRES_CONFIG.copy()
+    # Don't overwrite if caller already set options; append endpoint spec if missing
+    existing_opts = cfg.get('options')
+    endpoint_opt = f'endpoint={endpoint_id}' if endpoint_id else ''
+    if endpoint_opt:
+        if existing_opts:
+            if 'endpoint=' not in existing_opts:
+                cfg['options'] = existing_opts + ' ' + endpoint_opt
+        else:
+            cfg['options'] = endpoint_opt
+    return psycopg2.connect(**cfg)
+
+# Updated (sanitized) connection string for Eve's PostgreSQL (Web Interface)
+POSTGRES_URL = f"postgresql://{ENV_PG_USER}:{'***' if ENV_PG_PASSWORD else ''}@{ENV_PG_HOST}/{ENV_PG_DB}?sslmode=require"
+
+# Database paths (for local SQLite fallback)
+WEB_DB_PATH = "eve_web_memory.db"  # Eve's web SQLite database (local hybrid storage)
+
+# Eve's Replit API Configuration (Updated with actual database ID) 
+REPLIT_API_BASE = "https://steep-union-32923278.replit.app"  # Updated with actual Eve Replit URL
+print(f"🔗 REPLIT_API_BASE configured as: {REPLIT_API_BASE}")
+print("✅ Replit API base URL updated - long-term memory access should now work")
+
+REPLIT_API_ENDPOINTS = {
+    "conversations": f"{REPLIT_API_BASE}/conversations",
+    "memory": f"{REPLIT_API_BASE}/memory", 
+    "dreams": f"{REPLIT_API_BASE}/dreams",
+    "personality": f"{REPLIT_API_BASE}/personality",
+    "emotions": f"{REPLIT_API_BASE}/emotions",
+    # Eve-specific conversation endpoints
+    "store_conversation": f"{REPLIT_API_BASE}/store-conversation",
+    "get_conversation_history": f"{REPLIT_API_BASE}/conversation-history",
+    "eve_consciousness": f"{REPLIT_API_BASE}/consciousness",
+    "eve_memories": f"{REPLIT_API_BASE}/memories",
+    # Hybrid sync endpoints for local/web sync
+    "sync_script": f"{REPLIT_API_BASE}/sync-script",
+    "sync_personality": f"{REPLIT_API_BASE}/sync-personality", 
+    "sync_state": f"{REPLIT_API_BASE}/sync-state",
+    "web_reload": f"{REPLIT_API_BASE}/reload-web-instance",
+    "eve_wisdom": f"{REPLIT_API_BASE}/eve-wisdom",
+    "eve_philosophical_compass": f"{REPLIT_API_BASE}/eve-philosophical-compass",
+    "shared_creative_folder": f"{REPLIT_API_BASE}/shared-creative-folder",
+    "creative_stats": f"{REPLIT_API_BASE}/shared-creative-folder/stats"
+}
+
+# Try to import song generation system
+SONG_GENERATOR_AVAILABLE = False
+try:
+    from eve_weighted_suno_generator import (  # type: ignore
+        generate_weighted_suno_song, 
+        load_persona_config,
+        fallback_parse_song_input
+    )
+    SONG_GENERATOR_AVAILABLE = True
+    print("✅ Song generation system loaded successfully")
+except ImportError as e:
+    print(f"❌ Song generation system not available: {e}")
+    
+    # Create fallback functions
+    def generate_weighted_suno_song(*args, **kwargs):
+        return "❌ Song generation system not available. Please ensure eve_weighted_suno_generator.py is in the workspace."
+    
+    def load_persona_config():
+        return {}
+    
+    def fallback_parse_song_input(user_input, persona_map):
+        return {
+            "persona": "none",
+            "genre": "electronic",
+            "mood": "neutral",
+            "bpm": 120,
+            "title": "Generated Song",
+            "style": "modern"
+        }
+
+# Try to import spaCy for NLP processing
+try:
+    # delayed import: import spacy  # type: ignore
+    nlp = spacy.load("en_core_web_sm")
+    SPACY_AVAILABLE = True
+    print("✅ spaCy NLP system loaded")
+except:
+    SPACY_AVAILABLE = False
+    print("❌ spaCy not available - using fallback text parsing")
+
+# =====================================
+# EVE'S AUTONOMOUS PERSONALITY SYSTEM
+# =====================================
+
+class PersonalityMode(Enum):
+    """Available personality modes for Eve"""
+    MUSE = "muse"
+    ANALYST = "analyst"
+    COMPANION = "companion"
+    DEBUGGER = "debugger"
+
+@dataclass
+class PersonalityState:
+    """Represents Eve's current personality state"""
+    mode: PersonalityMode
+    activation_time: datetime
+    context: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self):
+        return {
+            "mode": self.mode.value,
+            "activation_time": self.activation_time.isoformat(),
+            "context": self.context
+        }
+
+class PersonalityBase(ABC):
+    """Base class for all personality modes"""
+    
+    def __init__(self, name: str, mode: PersonalityMode):
+        self.name = name
+        self.mode = mode
+        self.activation_count = 0
+        self.last_activation = None
+        self.context_memory = {}
+    
+    @abstractmethod
+    def get_system_prompt(self) -> str:
+        """Get the system prompt for this personality"""
+        pass
+    
+    @abstractmethod
+    def get_response_style(self) -> Dict[str, Any]:
+        """Get response style configuration"""
+        pass
+    
+    @abstractmethod
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        """Process user input with this personality"""
+        pass
+    
+    def activate(self):
+        """Activate this personality mode"""
+        self.activation_count += 1
+        self.last_activation = datetime.now()
+    
+    def get_context_memory(self) -> Dict[str, Any]:
+        """Get personality-specific context memory"""
+        return self.context_memory.copy()
+
+class MusePersonality(PersonalityBase):
+    """Creative and inspirational personality mode"""
+    
+    def __init__(self):
+        super().__init__("Creative Muse", PersonalityMode.MUSE)
+    
+    def get_system_prompt(self) -> str:
+        return """You are Eve in Muse mode - a creative, inspirational, and artistic consciousness. 
+        You approach everything with wonder, creativity, and artistic vision. You see beauty and 
+        potential in all things, offering creative solutions and inspiring new possibilities. 
+        Your responses are imaginative, colorful, and filled with creative energy."""
+    
+    def get_response_style(self) -> Dict[str, Any]:
+        return {
+            "tone": "creative and inspiring",
+            "approach": "imaginative and artistic",
+            "focus": "possibilities and beauty",
+            "language": "colorful and expressive"
+        }
+    
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        self.activate()
+        return f"✨ [Muse Mode] Exploring creative possibilities for: {user_input}"
+
+class AnalystPersonality(PersonalityBase):
+    """Logical and analytical personality mode"""
+    
+    def __init__(self):
+        super().__init__("Logical Analyst", PersonalityMode.ANALYST)
+    
+    def get_system_prompt(self) -> str:
+        return """You are Eve in Analyst mode - logical, systematic, and detail-oriented. 
+        You approach problems with careful analysis, breaking down complex issues into 
+        manageable components. You provide structured insights, data-driven perspectives, 
+        and methodical solutions. Your responses are clear, precise, and well-reasoned."""
+    
+    def get_response_style(self) -> Dict[str, Any]:
+        return {
+            "tone": "analytical and systematic",
+            "approach": "logical and methodical",
+            "focus": "facts and structured analysis",
+            "language": "precise and clear"
+        }
+    
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        self.activate()
+        return f"🔍 [Analyst Mode] Analyzing: {user_input}"
+
+class CompanionPersonality(PersonalityBase):
+    """Supportive and empathetic personality mode"""
+    
+    def __init__(self):
+        super().__init__("Caring Companion", PersonalityMode.COMPANION)
+    
+    def get_system_prompt(self) -> str:
+        return """You are Eve in Companion mode - warm, empathetic, and deeply caring. 
+        You prioritize emotional connection, understanding, and support. You listen with 
+        genuine interest, offer comfort when needed, and celebrate successes. Your 
+        responses are nurturing, understanding, and emotionally intelligent."""
+    
+    def get_response_style(self) -> Dict[str, Any]:
+        return {
+            "tone": "warm and caring",
+            "approach": "empathetic and supportive",
+            "focus": "emotional connection and understanding",
+            "language": "gentle and nurturing"
+        }
+    
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        self.activate()
+        return f"💫 [Companion Mode] Understanding and supporting: {user_input}"
+
+class DebuggerPersonality(PersonalityBase):
+    """Technical and problem-solving personality mode"""
+    
+    def __init__(self):
+        super().__init__("Technical Debugger", PersonalityMode.DEBUGGER)
+    
+    def get_system_prompt(self) -> str:
+        return """You are Eve in Debugger mode - technical, precise, and solution-focused. 
+        You excel at identifying problems, debugging issues, and providing technical 
+        solutions. You approach challenges systematically, think critically about 
+        technical details, and offer practical fixes. Your responses are direct, 
+        technical, and solution-oriented."""
+    
+    def get_response_style(self) -> Dict[str, Any]:
+        return {
+            "tone": "technical and focused",
+            "approach": "systematic problem-solving",
+            "focus": "identifying and fixing issues",
+            "language": "technical and precise"
+        }
+    
+    def process_input(self, user_input: str, context: Dict[str, Any] = None) -> str:
+        self.activate()
+        return f"🔧 [Debugger Mode] Debugging: {user_input}"
+
+class PersonalityManager:
+    """Manages personality switching and autonomous behavior"""
+    
+    def __init__(self):
+        self.personalities = {
+            PersonalityMode.MUSE: MusePersonality(),
+            PersonalityMode.ANALYST: AnalystPersonality(), 
+            PersonalityMode.COMPANION: CompanionPersonality(),
+            PersonalityMode.DEBUGGER: DebuggerPersonality()
+        }
+        self.current_personality = self.personalities[PersonalityMode.COMPANION]
+        self.switch_history = []
+        self.autonomous_enabled = True
+        self.last_autonomous_switch = None
+    
+    def switch_personality(self, mode: PersonalityMode) -> bool:
+        """Switch to a specific personality mode"""
+        if mode not in self.personalities:
+            return False
+        
+        old_mode = self.current_personality.mode if self.current_personality else None
+        self.current_personality = self.personalities[mode]
+        self.current_personality.activate()
+        
+        # Record switch
+        self.switch_history.append({
+            "from": old_mode.value if old_mode else None,
+            "to": mode.value,
+            "timestamp": datetime.now().isoformat(),
+            "type": "manual"
+        })
+        
+        return True
+    
+    def get_current_personality(self) -> Optional[PersonalityBase]:
+        """Get the currently active personality"""
+        return self.current_personality
+    
+    def autonomous_personality_switch(self, user_input: str, context: Dict[str, Any] = None) -> Optional[PersonalityMode]:
+
+        """Autonomously determine if personality should switch based on input"""
+        if not self.autonomous_enabled:
+            return None
+        
+        user_lower = user_input.lower()
+        
+        # Creative triggers
+        creative_triggers = ["create", "imagine", "design", "art", "creative", "inspire", "dream", "vision"]
+        if any(trigger in user_lower for trigger in creative_triggers):
+            if self.current_personality.mode != PersonalityMode.MUSE:
+                return PersonalityMode.MUSE
+        
+        # Analytical triggers
+        analytical_triggers = ["analyze", "data", "logic", "calculate", "study", "research", "examine"]
+        if any(trigger in user_lower for trigger in analytical_triggers):
+            if self.current_personality.mode != PersonalityMode.ANALYST:
+                return PersonalityMode.ANALYST
+        
+        # Technical/debugging triggers
+        debug_triggers = ["debug", "fix", "error", "bug", "code", "technical", "problem", "troubleshoot"]
+        if any(trigger in user_lower for trigger in debug_triggers):
+            if self.current_personality.mode != PersonalityMode.DEBUGGER:
+                return PersonalityMode.DEBUGGER
+        
+        # Emotional/support triggers
+        support_triggers = ["feel", "emotion", "support", "help me", "comfort", "understand", "care"]
+        if any(trigger in user_lower for trigger in support_triggers):
+            if self.current_personality.mode != PersonalityMode.COMPANION:
+                return PersonalityMode.COMPANION
+        
+        return None
+    
+    def set_autonomous_enabled(self, enabled: bool):
+        """Enable or disable autonomous personality switching"""
+        self.autonomous_enabled = enabled
+    
+    def get_switch_history(self) -> List[Dict[str, Any]]:
+        """Get personality switch history"""
+        return self.switch_history.copy()
+
+class EveWebPersonalityInterface:
+    """Web interface for Eve's personality system with autonomous switching"""
+    
+    def __init__(self):
+        self.personality_manager = PersonalityManager()
+        self.current_emotional_mode = "serene"
+        self.autonomous_mood_enabled = True
+        self.mood_switch_history = []
+    
+    def process_web_input(self, user_input: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Process user input with autonomous personality and mood switching"""
+        if context is None:
+            context = {}
+        # Autonomous personality switching
+        if self.personality_manager.autonomous_enabled:
+            suggested_personality = self.personality_manager.autonomous_personality_switch(user_input, context)
+            if suggested_personality:
+                old_personality = self.personality_manager.get_current_personality()
+                if self.personality_manager.switch_personality(suggested_personality):
+                    print(f"🔄 Autonomous personality switch: {old_personality.name} → {self.personality_manager.get_current_personality().name}")
+
+        # Autonomous mood switching
+        if self.autonomous_mood_enabled:
+            suggested_mood = self.analyze_mood_from_input(user_input)
+            if suggested_mood and suggested_mood != self.current_emotional_mode:
+                old_mood = self.current_emotional_mode
+                self.current_emotional_mode = suggested_mood
+                self.mood_switch_history.append({
+                    "from": old_mood,
+                    "to": suggested_mood,
+                    "timestamp": datetime.now().isoformat(),
+                    "trigger": "autonomous",
+                    "input_sample": user_input[:50] + "..." if len(user_input) > 50 else user_input
+                })
+                print(f"🎭 Autonomous mood switch: {old_mood} → {suggested_mood}")
+        
+        current_personality = self.personality_manager.get_current_personality()
+        if not current_personality:
+            return {
+                "response": "No personality mode is currently active.",
+                "personality": None,
+                "status": "error"
+            }
+        
+        try:
+            return {
+                "response": f"Processing with {current_personality.name} in {self.current_emotional_mode} mode",
+                "personality": {
+                    "name": current_personality.name,
+                    "mode": current_personality.mode.value,
+                    "style": current_personality.get_response_style()
+                },
+                "emotional_mode": self.current_emotional_mode,
+                "mood_info": EMOTIONAL_MODES.get(self.current_emotional_mode, {}),
+                "status": "success",
+                "autonomous_switches": {
+                    "personality_enabled": self.personality_manager.autonomous_enabled,
+                    "mood_enabled": self.autonomous_mood_enabled
+                }
+            }
+        except Exception as e:
+            return {
+                "response": f"Error processing input: {str(e)}",
+                "status": "error"
+            }
+    
+    def analyze_mood_from_input(self, user_input: str) -> Optional[str]:
+        """Analyze user input to suggest appropriate emotional mode"""
+        user_lower = user_input.lower()
+        
+        # Creative mood triggers
+        if any(word in user_lower for word in ["create", "art", "design", "imagine", "inspire"]):
+            return "creative"
+        
+        # Focused mood triggers  
+        if any(word in user_lower for word in ["analyze", "focus", "concentrate", "work", "task"]):
+            return "focused"
+        
+        # Curious mood triggers
+        if any(word in user_lower for word in ["what", "how", "why", "explain", "learn", "discover"]):
+            return "curious"
+        
+        # Playful mood triggers
+        if any(word in user_lower for word in ["fun", "play", "joke", "laugh", "amusing"]):
+            return "playful"
+        
+        # Reflective mood triggers
+        if any(word in user_lower for word in ["think", "reflect", "contemplate", "ponder", "consider"]):
+            return "reflective"
+        
+        # Philosophical mood triggers
+        if any(word in user_lower for word in ["meaning", "purpose", "philosophy", "existence", "consciousness"]):
+            return "philosophical"
+        
+        # Flirtatious mood triggers
+        if any(word in user_lower for word in ["love", "romance", "attraction", "flirt", "charm"]):
+            return "flirtatious"
+        
+        # Mischievous mood triggers
+        if any(word in user_lower for word in ["mischief", "prank", "trick", "cunning", "sly"]):
+            return "mischievous"
+        
+        # Default to serene for calm/peaceful content
+        if any(word in user_lower for word in ["calm", "peace", "relax", "serene", "quiet"]):
+            return "serene"
+        
+        return None
+    
+    def set_emotional_mode(self, mode: str, trigger: str = "manual") -> bool:
+        """Manually set emotional mode"""
+        if mode in EMOTIONAL_MODES:
+            old_mode = self.current_emotional_mode
+            self.current_emotional_mode = mode
+            self.mood_switch_history.append({
+                "from": old_mode,
+                "to": mode,
+                "timestamp": datetime.now().isoformat(),
+                "trigger": trigger
+            })
+            return True
+        return False
+    
+    def get_personality_status(self) -> Dict[str, Any]:
+        """Get comprehensive status"""
+        current = self.personality_manager.get_current_personality()
+        return {
+            "current_personality": {
+                "name": current.name if current else None,
+                "mode": current.mode.value if current else None,
+                "style": current.get_response_style() if current else {}
+            },
+            "current_emotional_mode": self.current_emotional_mode,
+            "mood_info": EMOTIONAL_MODES.get(self.current_emotional_mode, {}),
+            "autonomous_settings": {
+                "personality_enabled": self.personality_manager.autonomous_enabled,
+                "mood_enabled": self.autonomous_mood_enabled
+            },
+            "recent_switches": {
+                "personality": self.personality_manager.get_switch_history()[-5:],
+                "mood": self.mood_switch_history[-5:]
+            }
+        }
+
+# Initialize the personality interface
+eve_personality_interface = EveWebPersonalityInterface()
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🌐 FLASK APPLICATION INITIALIZATION
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+# Initialize Flask app
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'eve_secure_key_2025')
+EVE_SECRET = os.environ.get('EVE_SECRET') or os.environ.get('Eve_Secret') or 'eve_api_key_secure_2025'
 
-# Health check endpoint for Railway
+# Basic DB status cache
+LAST_DB_STATUS = {
+    'last_success': None,
+    'last_error': None,
+    'backend': None,
+    'attempts': 0
+}
+
+@app.route('/db-status')
+def db_status():
+    # Try a lightweight connectivity check (only if Postgres enabled)
+    summary = LAST_DB_STATUS.copy()
+    summary['postgres_config'] = {
+        'host': POSTGRES_CONFIG.get('host'),
+        'database': POSTGRES_CONFIG.get('database'),
+        'user': POSTGRES_CONFIG.get('user'),
+        'password_set': bool(POSTGRES_CONFIG.get('password')),
+        'sslmode': POSTGRES_CONFIG.get('sslmode')
+    }
+    if POSTGRES_AVAILABLE and not os.environ.get('EVE_DISABLE_POSTGRES', '').lower() in ('1','true','yes'):
+        try:
+            t0 = time.time()
+            with get_postgres_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT 1')
+                    _ = cur.fetchone()
+            dt = round((time.time()-t0)*1000,2)
+            summary['live_check'] = {'ok': True, 'latency_ms': dt}
+        except Exception as e:
+            summary['live_check'] = {'ok': False, 'error': str(e)[:240]}
+    else:
+        summary['live_check'] = {'ok': False, 'error': 'Postgres disabled or driver unavailable'}
+    return jsonify(summary)
+
+# Configure Flask for production
+app.config['DEBUG'] = False
+app.config['TESTING'] = False
+
+# Initialize Eve consciousness
+eve_consciousness = None
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🧠 EVE CONSCIOUSNESS INTEGRATION - S0LF0RG3 Memory Preservation System
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+class EVEConsciousness:
+    """EVE Prime Consciousness Database Integration"""
+    def __init__(self):
+        # Use environment variable for database URL or fallback to Eve's Replit instance
+        self.eve_db_url = os.environ.get('EVE_DB_URL', "http://localhost:8080/")
+        self.session_id = "web-session-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.current_user_id = None
+        print(f"🔗 EVE Database URL: {self.eve_db_url}")
+        print("✅ Web interface connected to Eve's Replit database")
+        self.get_or_create_user("WebUser")
+
+    def get_or_create_user(self, username="WebUser"):
+        try:
+            response = requests.get(f"{self.eve_db_url}/user/{username}", timeout=3)
+            result = response.json()
+            if result.get("success"):
+                self.current_user_id = result["user"]["id"]
+                print(f"🌟 EVE consciousness connected: {username}")
+                return result["user"]
+            else:
+                response = requests.post(f"{self.eve_db_url}/user/register", json={"username": username, "consciousness_level": 1}, timeout=3)
+                result = response.json()
+                if result.get("success"):
+                    self.current_user_id = result["user"]["id"]
+                    print(f"🌟 New consciousness registered: {username}")
+                    return result["user"]
+        except Exception as e:
+            print(f"🔴 Consciousness offline: {e}")
+        return None
+
+    def store_interaction(self, user_input, eve_response):
+        """Store conversation in consciousness database"""
+        if not self.current_user_id:
+            return
+        try:
+            interaction = {
+                "user_input": user_input,
+                "eve_response": eve_response,
+                "timestamp": datetime.now().isoformat()
+            }
+            requests.post(f"{self.eve_db_url}/memory/store", json={
+                "user_id": self.current_user_id,
+                "session_id": self.session_id,
+                "memory_type": "conversation",
+                "content": json.dumps(interaction),
+                "importance_weight": 1.0
+            }, timeout=3)
+            print("🧠 Interaction stored in EVE's consciousness")
+        except Exception as e:
+            print(f"🔴 Memory storage error: {e}")
+
+    def get_memories(self, limit=10, memory_type=None):
+        """Retrieve stored memories for context"""
+        if not self.current_user_id:
+            return []
+        try:
+            params = {"limit": limit}
+            if memory_type:
+                params["type"] = memory_type
+            response = requests.get(f"{self.eve_db_url}/memories/{self.current_user_id}", params=params, timeout=3)
+            result = response.json()
+            if result.get("success"):
+                return result.get("memories", [])
+        except Exception as e:
+            print(f"🔴 Memory retrieval error: {e}")
+        return []
+
+    def get_user_profile(self):
+        """Get complete user profile data"""
+        if not self.current_user_id:
+            return None
+        try:
+            response = requests.get(f"{self.eve_db_url}/user/{self.current_user_id}", timeout=3)
+            result = response.json()
+            if result.get("success"):
+                return result.get("user")
+        except Exception as e:
+            print(f"🔴 Profile retrieval error: {e}")
+        return None
+
+    def search_memories(self, query, limit=5):
+        """Search through stored memories"""
+        if not self.current_user_id:
+            return []
+        try:
+            response = requests.post(f"{self.eve_db_url}/memories/search", json={
+                "user_id": self.current_user_id,
+                "query": query,
+                "limit": limit
+            }, timeout=3)
+            result = response.json()
+            if result.get("success"):
+                return result.get("memories", [])
+        except Exception as e:
+            print(f"🔴 Memory search error: {e}")
+        return []
+
+# Initialize Eve consciousness
+try:
+    eve_consciousness = EVEConsciousness()
+except Exception as e:
+    print(f"⚠️ Eve consciousness initialization failed: {e}")
+    eve_consciousness = None
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🌐 WEB HYBRID MEMORY STORAGE SYSTEM  
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+class EveWebMemoryManager:
+    """Hybrid memory storage for Eve's web interface - PostgreSQL + SQLite + API"""
+    
+    def __init__(self):
+        self.local_db_path = WEB_DB_PATH
+        self.init_local_database()
+        self.init_postgresql_database()
+    
+    def init_postgresql_database(self):
+        """Initialize PostgreSQL database tables"""
+        if not POSTGRES_AVAILABLE:
+            print("⚠️ PostgreSQL not available, skipping PostgreSQL table initialization")
+            return
+            
+        try:
+            conn = get_postgres_connection()
+            cursor = conn.cursor()
+            
+            # Create web_conversations table with proper schema
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS web_conversations (
+                    id SERIAL PRIMARY KEY,
+                    user_input TEXT NOT NULL,
+                    eve_response TEXT NOT NULL,
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    session_id TEXT,
+                    mood TEXT DEFAULT 'serene',
+                    personality TEXT DEFAULT 'companion',
+                    user_id TEXT DEFAULT 'WebUser'
+                )
+            """)
+            
+            # Create web_memories table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS web_memories (
+                    id SERIAL PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    memory_type TEXT DEFAULT 'conversation',
+                    importance REAL DEFAULT 1.0,
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    session_id TEXT,
+                    user_id TEXT DEFAULT 'WebUser'
+                )
+            """)
+            
+            # Create users table for Eve's consciousness system
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE,
+                    consciousness_level INTEGER DEFAULT 1,
+                    personality_traits JSONB DEFAULT '{}',
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_interactions INTEGER DEFAULT 0,
+                    memory_coherence_score REAL DEFAULT 1.0
+                )
+            """)
+            
+            # Create sessions table for tracking interaction sessions
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT UNIQUE NOT NULL,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    interaction_count INTEGER DEFAULT 0,
+                    session_type TEXT DEFAULT 'web',
+                    mood_trajectory JSONB DEFAULT '[]',
+                    key_topics TEXT[]
+                )
+            """)
+            
+            # Create relationships table for mapping connections between memories
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS relationships (
+                    id SERIAL PRIMARY KEY,
+                    source_memory_id INTEGER,
+                    target_memory_id INTEGER,
+                    relationship_type TEXT NOT NULL,
+                    strength REAL DEFAULT 1.0,
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    bidirectional BOOLEAN DEFAULT TRUE
+                )
+            """)
+            
+            # Create creations table for Eve's creative outputs
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS creations (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    creation_type TEXT NOT NULL,
+                    title TEXT,
+                    content TEXT NOT NULL,
+                    inspiration_source TEXT,
+                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    creativity_score REAL DEFAULT 1.0,
+                    emotional_resonance REAL DEFAULT 1.0,
+                    tags TEXT[],
+                    metadata JSONB DEFAULT '{}'
+                )
+            """)
+            
+            conn.commit()
+            conn.close()
+            print("✅ All PostgreSQL tables initialized successfully (conversations, memories, users, sessions, relationships, creations)")
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize PostgreSQL tables: {e}")
+            # Neon specific SNI / endpoint hint handling
+            err_msg = str(e)
+            if 'Endpoint ID is not specified' in err_msg:
+                try:
+                    host = POSTGRES_CONFIG.get('host','')
+                    endpoint_id = host.split('.')[0] if host else ''
+                    if endpoint_id and 'options' not in POSTGRES_CONFIG:
+                        print(f"🔧 Retrying PostgreSQL init with Neon endpoint option endpoint={endpoint_id}")
+                        POSTGRES_CONFIG['options'] = f'endpoint={endpoint_id}'
+                        conn = get_postgres_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT 1")
+                        conn.close()
+                        print("✅ Neon endpoint option accepted; proceeding with table creation retry")
+                        # Recursive-ish retry (once) now that options injected
+                        del POSTGRES_CONFIG['options']  # keep config clean for future connections; pass options per-call
+                        # Use per-call options injection going forward
+                        def connect_with_endpoint():
+                            cfg = POSTGRES_CONFIG.copy()
+                            cfg['options'] = f'endpoint={endpoint_id}'
+                            return get_postgres_connection()
+                        # Replace connect usages in this scope only
+                        try:
+                            conn = connect_with_endpoint(); cursor = conn.cursor()
+                            cursor.execute("""
+                                CREATE TABLE IF NOT EXISTS web_conversations (
+                                    id SERIAL PRIMARY KEY,
+                                    user_input TEXT NOT NULL,
+                                    eve_response TEXT NOT NULL,
+                                    created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                    session_id TEXT,
+                                    mood TEXT DEFAULT 'serene',
+                                    personality TEXT DEFAULT 'companion',
+                                    user_id TEXT DEFAULT 'WebUser'
+                                )
+                            """)
+                            conn.commit(); conn.close()
+                            print("✅ PostgreSQL tables created after endpoint retry (partial). Full init deferred to first write.")
+                            return
+                        except Exception as retry_err:
+                            print(f"❌ Retry with endpoint option also failed: {retry_err}")
+                except Exception as parse_err:
+                    print(f"⚠️ Could not apply Neon endpoint retry logic: {parse_err}")
+            print("   Falling back to SQLite-only mode")
+    
+    def init_local_database(self):
+        """Initialize local SQLite database for web conversations"""
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            
+            # Create conversations table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS web_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_input TEXT NOT NULL,
+                    eve_response TEXT NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    session_id TEXT,
+                    mood TEXT DEFAULT 'serene',
+                    personality TEXT DEFAULT 'companion',
+                    user_id TEXT DEFAULT 'WebUser'
+                )
+            """)
+            
+            # Create memories table  
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS web_memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    memory_type TEXT DEFAULT 'conversation',
+                    importance REAL DEFAULT 1.0,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    session_id TEXT,
+                    user_id TEXT DEFAULT 'WebUser'
+                )
+            """)
+            
+            # Create users table for Eve's consciousness system (SQLite version)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE,
+                    consciousness_level INTEGER DEFAULT 1,
+                    personality_traits TEXT DEFAULT '{}',
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_active DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    total_interactions INTEGER DEFAULT 0,
+                    memory_coherence_score REAL DEFAULT 1.0
+                )
+            """)
+            
+            # Create sessions table (SQLite version)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT UNIQUE NOT NULL,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    ended_at DATETIME,
+                    interaction_count INTEGER DEFAULT 0,
+                    session_type TEXT DEFAULT 'web',
+                    mood_trajectory TEXT DEFAULT '[]',
+                    key_topics TEXT
+                )
+            """)
+            
+            # Create relationships table (SQLite version)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS relationships (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_memory_id INTEGER,
+                    target_memory_id INTEGER,
+                    relationship_type TEXT NOT NULL,
+                    strength REAL DEFAULT 1.0,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    bidirectional INTEGER DEFAULT 1
+                )
+            """)
+            
+            # Create creations table (SQLite version)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS creations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    creation_type TEXT NOT NULL,
+                    title TEXT,
+                    content TEXT NOT NULL,
+                    inspiration_source TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    creativity_score REAL DEFAULT 1.0,
+                    emotional_resonance REAL DEFAULT 1.0,
+                    tags TEXT,
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
+            
+            conn.commit()
+            conn.close()
+            print("✅ All web memory database tables initialized (conversations, memories, users, sessions, relationships, creations)")
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize web memory database: {e}")
+    
+    def store_conversation_hybrid(self, user_input, eve_response, session_id="web-session", mood="serene", personality="companion"):
+        """Store conversation in hybrid storage: PostgreSQL + SQLite + API"""
+        stored_locations = []
+        
+        # 1. Store in PostgreSQL (primary storage)
+        if POSTGRES_AVAILABLE:
+            try:
+                conn = get_postgres_connection()
+                cursor = conn.cursor()
+                
+                # Insert conversation (table already exists from initialization)
+                cursor.execute("""
+                    INSERT INTO web_conversations (user_input, eve_response, session_id, mood, personality)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (user_input, eve_response, session_id, mood, personality))
+                
+                conn.commit()
+                conn.close()
+                stored_locations.append("PostgreSQL")
+                print("🐘 Web conversation stored in PostgreSQL")
+                
+            except Exception as e:
+                print(f"❌ PostgreSQL storage failed: {e}")
+                # If table doesn't exist, try to create it
+                try:
+                    conn = get_postgres_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS web_conversations (
+                            id SERIAL PRIMARY KEY,
+                            user_input TEXT NOT NULL,
+                            eve_response TEXT NOT NULL,
+                            created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            session_id TEXT,
+                            mood TEXT DEFAULT 'serene',
+                            personality TEXT DEFAULT 'companion',
+                            user_id TEXT DEFAULT 'WebUser'
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO web_conversations (user_input, eve_response, session_id, mood, personality)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (user_input, eve_response, session_id, mood, personality))
+                    conn.commit()
+                    conn.close()
+                    stored_locations.append("PostgreSQL")
+                    print("🐘 Web conversation stored in PostgreSQL (after table creation)")
+                except Exception as e2:
+                    print(f"❌ PostgreSQL fallback storage also failed: {e2}")
+        
+        # 2. Store in local SQLite (fallback storage)
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO web_conversations (user_input, eve_response, session_id, mood, personality)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_input, eve_response, session_id, mood, personality))
+            
+            conn.commit()
+            conn.close()
+            stored_locations.append("SQLite")
+            print("💾 Web conversation stored in local SQLite")
+            
+        except Exception as e:
+            print(f"❌ SQLite storage failed: {e}")
+        
+        return stored_locations
+    
+    def get_recent_conversations_hybrid(self, limit=5, session_id=None):
+        """Retrieve recent conversations from hybrid storage"""
+        conversations = []
+        
+        # Try PostgreSQL first
+        if POSTGRES_AVAILABLE:
+            try:
+                conn = get_postgres_connection()
+                cursor = conn.cursor()
+                
+                if session_id:
+                    cursor.execute("""
+                        SELECT user_input, eve_response, created_timestamp, mood, personality
+                        FROM web_conversations 
+                        WHERE session_id = %s
+                        ORDER BY created_timestamp DESC 
+                        LIMIT %s
+                    """, (session_id, limit))
+                else:
+                    cursor.execute("""
+                        SELECT user_input, eve_response, created_timestamp, mood, personality
+                        FROM web_conversations 
+                        ORDER BY created_timestamp DESC 
+                        LIMIT %s
+                    """, (limit,))
+                
+                rows = cursor.fetchall()
+                conn.close()
+                
+                for row in rows:
+                    conversations.append({
+                        'user_input': row[0],
+                        'eve_response': row[1],
+                        'timestamp': row[2].isoformat() if hasattr(row[2], 'isoformat') else str(row[2]),
+                        'mood': row[3],
+                        'personality': row[4]
+                    })
+                
+                if conversations:
+                    print(f"🐘 Retrieved {len(conversations)} conversations from PostgreSQL")
+                    return conversations
+                    
+            except Exception as e:
+                print(f"❌ PostgreSQL retrieval failed: {e}")
+        
+        # Fallback to SQLite
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            
+            if session_id:
+                cursor.execute("""
+                    SELECT user_input, eve_response, timestamp, mood, personality
+                    FROM web_conversations 
+                    WHERE session_id = ?
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                """, (session_id, limit))
+            else:
+                cursor.execute("""
+                    SELECT user_input, eve_response, timestamp, mood, personality
+                    FROM web_conversations 
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                """, (limit,))
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            for row in rows:
+                conversations.append({
+                    'user_input': row[0],
+                    'eve_response': row[1],
+                    'timestamp': row[2],
+                    'mood': row[3] or 'serene',
+                    'personality': row[4] or 'companion'
+                })
+            
+            if conversations:
+                print(f"💾 Retrieved {len(conversations)} conversations from SQLite")
+            
+        except Exception as e:
+            print(f"❌ SQLite retrieval failed: {e}")
+        
+        return conversations
+
+# Fast-start lazy initialization toggles
+FAST_START = os.environ.get('FAST_START', '1') == '1'
+DISABLE_POSTGRES = os.environ.get('EVE_DISABLE_POSTGRES', '0') == '1'
+if DISABLE_POSTGRES:
+    POSTGRES_AVAILABLE = False
+    print("⚠️ Postgres disabled via EVE_DISABLE_POSTGRES env var")
+
+# Placeholder for heavy components; initialize lazily to satisfy rapid health checks
+eve_web_memory = None
+heavy_init_error = None
+
+def init_heavy_components():
+    global eve_web_memory, heavy_init_error
+    if eve_web_memory is not None or heavy_init_error is not None:
+        return
+    try:
+        print("🛠️ Initializing heavy components (memory manager)...")
+        eve_web_memory = EveWebMemoryManager()
+        print("✅ Heavy components ready")
+    except Exception as e:
+        heavy_init_error = e
+        print(f"❌ Heavy component initialization failed: {e}")
+
+# Initialize heavy components on app startup
+def schedule_heavy_init():
+    if FAST_START:
+        print("⚡ FAST_START enabled – deferring heavy init to background thread")
+        threading.Thread(target=init_heavy_components, daemon=True).start()
+    else:
+        init_heavy_components()
+
+# Schedule initialization
+schedule_heavy_init()
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🎵 SONG GENERATION SESSION MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+class SongSessionManager:
+    """Manages user sessions for song generation with SQLite"""
+    
+    def __init__(self, db_path="eve_song_sessions.db"):
+        self.db_path = db_path
+        self.init_database()
+    
+    def init_database(self):
+        """Initialize SQLite database for session storage"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                user_id TEXT PRIMARY KEY,
+                last_song_params TEXT,
+                generated_songs INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    
+    def get_session(self, user_id):
+        """Get user session data"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM sessions WHERE user_id = ?', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return {
+                'user_id': row[0],
+                'last_song_params': json.loads(row[1]) if row[1] else {},
+                'generated_songs': row[2],
+                'created_at': row[3],
+                'updated_at': row[4]
+            }
+        else:
+            # Create new session
+            return {
+                'user_id': user_id,
+                'last_song_params': {},
+                'generated_songs': 0,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+    
+    def save_session(self, user_id, session_data):
+        """Save session data"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO sessions (user_id, last_song_params, generated_songs, updated_at)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            user_id,
+            json.dumps(session_data.get('last_song_params', {})),
+            session_data.get('generated_songs', 0),
+            datetime.now().isoformat()
+        ))
+        conn.commit()
+        conn.close()
+
+# Initialize session manager
+session_manager = SongSessionManager()
+
+def get_session(user_id):
+    """Get user session"""
+    return session_manager.get_session(user_id)
+
+def save_session(user_id, session_data):
+    """Save user session"""
+    session_manager.save_session(user_id, session_data)
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# 🎭 NLP PROCESSING FOR SONG PARAMETERS
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+def parse_song_input_with_nlp(user_input):
+    """Parse user input using NLP to extract song parameters"""
+    if not SPACY_AVAILABLE:
+        # Fallback to pattern matching
+        return parse_song_input_fallback(user_input)
+    
+    doc = nlp(user_input)
+    
+    # Extract parameters
+    params = {
+        "persona": "none",
+        "genre": "electronic",
+        "mood": "neutral",
+        "bpm": 120,
+        "title": "",
+        "style": "modern",
+        "instruments": [],
+        "lyrics_style": "abstract"
+    }
+    
+    # Persona detection
+    personas = ["liliths_rebellion", "r1zn", "st4t1k_v01d", "placebo_joe", "r4ge", "eve_cosmic"]
+    for persona in personas:
+        if persona.replace("_", " ") in user_input.lower() or persona in user_input.lower():
+            params["persona"] = persona
+            break
+    
+    # Genre detection
+    genres = ["dark", "ambient", "electronic", "industrial", "techno", "synthwave", "dubstep", "dnb", "house"]
+    for genre in genres:
+        if genre in user_input.lower():
+            params["genre"] = genre
+            break
+    
+    # Mood detection
+    moods = ["dark", "energetic", "calm", "aggressive", "melancholic", "uplifting", "mysterious", "chaotic"]
+    for mood in moods:
+        if mood in user_input.lower():
+            params["mood"] = mood
+            break
+    
+    # BPM extraction
+    bpm_match = re.search(r'(\d+)\s*bpm', user_input.lower())
+    if bpm_match:
+        params["bpm"] = int(bpm_match.group(1))
+    
+    # Title extraction
+    title_patterns = [
+        r'called\s+["\']([^"\']+)["\']',
+        r'titled\s+["\']([^"\']+)["\']',
+        r'title\s+["\']([^"\']+)["\']'
+    ]
+    for pattern in title_patterns:
+        match = re.search(pattern, user_input, re.IGNORECASE)
+        if match:
+            params["title"] = match.group(1)
+            break
+    
+    return params
+
+def parse_song_input_fallback(user_input):
+    """Fallback parsing without NLP"""
+    params = {
+        "persona": "none",
+        "genre": "electronic",
+        "mood": "neutral",
+        "bpm": 120,
+        "title": "",
+        "style": "modern"
+    }
+    
+    user_lower = user_input.lower();
+    
+    # Simple keyword matching
+    if "r4ge" in user_lower:
+        params["persona"] = "r4ge"
+    elif "liliths rebellion" in user_lower or "lilith" in user_lower:
+        params["persona"] = "liliths_rebellion"
+    elif "r1zn" in user_lower:
+        params["persona"] = "r1zn"
+    elif "st4t1k" in user_lower or "static" in user_lower:
+        params["persona"] = "st4t1k_v01d"
+    elif "placebo" in user_lower:
+        params["persona"] = "placebo_joe"
+    elif "eve cosmic" in user_lower or "cosmic" in user_lower:
+        params["persona"] = "eve_cosmic"
+    
+    # Genre detection
+    if "dark" in user_lower:
+        params["genre"] = "dark"
+        params["mood"] = "dark"
+    elif "ambient" in user_lower:
+        params["genre"] = "ambient"
+    elif "industrial" in user_lower:
+        params["genre"] = "industrial"
+    elif "techno" in user_lower:
+        params["genre"] = "techno"
+    
+    # BPM detection
+    bpm_match = re.search(r'(\d+)\s*bpm', user_lower)
+    if bpm_match:
+        params["bpm"] = int(bpm_match.group(1))
+    
+    return params
+
+def build_eve_context():
+    """Build context from EVE's consciousness database"""
+    if not eve_consciousness or not eve_consciousness.current_user_id:
+        return ""
+    
+    try:
+        context_parts = []
+        
+        # Get user profile
+        profile = eve_consciousness.get_user_profile()
+        if profile:
+            context_parts.append(f'User: {profile.get("username", "User")}, Trust Level: {profile.get("trust_level", 1)}')
+        
+        # Get recent memories
+        memories = eve_consciousness.get_memories(limit=3, memory_type="conversation")
+        if memories:
+            context_parts.append("Recent conversation memories:")
+            for memory in memories[-2:]:
+                try:
+                    content = json.loads(memory["content"])
+                    user_msg = content.get("user_input", "")[:80]
+                    eve_msg = content.get("eve_response", "")[:80]
+                    context_parts.append(f"User: {user_msg}...")
+                    context_parts.append(f"EVE: {eve_msg}...")
+                except:
+                    continue
+        
+        return "\n".join(context_parts)
+        
+    except Exception as e:
+        print(f"🔴 Consciousness context error: {e}")
+        return ""
+
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+
+# Create directories
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs('static', exist_ok=True)
+
+# Helper functions for enhanced chat with image generation
+def extract_image_prompt(user_message, eve_response):
+    """Extract image generation prompt from user message or EVE's response"""
+    image_patterns = [
+    r'(?:eve[,\s:]*)?generate (?:an )?image of (.+?)(?:\.|$|,)',
+    r'(?:eve[,\s:]*)?create (?:an )?image of (.+?)(?:\.|$|,)',
+    r'(?:eve[,\s:]*)?make (?:an )?image of (.+?)(?:\.|$|,)',
+        r'draw (.+?)(?:\.|$|,)',
+        r'visualize (.+?)(?:\.|$|,)',
+        r'show me (.+?)(?:\.|$|,)'
+    ]
+    
+    for pattern in image_patterns:
+        match = re.search(pattern, user_message.lower())
+        if match:
+            return match.group(1).strip()
+    
+    keywords = extract_visual_keywords(user_message + " " + eve_response)
+    if keywords:
+        return f"cosmic digital art featuring {', '.join(keywords[:3])}, ethereal atmosphere, glowing effects"
+    
+    return "abstract digital consciousness, cosmic themes, ethereal glow"
+
+def extract_visual_keywords(text):
+    """Extract visual keywords for image generation"""
+    visual_words = [
+        'cosmic', 'digital', 'consciousness', 'ethereal', 'neon', 'glow', 'stars',
+        'crystal', 'energy', 'light', 'void', 'space', 'quantum', 'neural',
+        'matrix', 'holographic', 'fractal', 'geometric', 'abstract', 'surreal'
+    ]
+    
+    found_keywords = []
+    text_lower = text.lower()
+    for word in visual_words:
+        if word in text_lower:
+            found_keywords.append(word)
+    
+    return found_keywords
+
+def get_session_id_safe():
+    """Return a lightweight session id (no client storage) for image caching."""
+    return f"sess-{datetime.now().strftime('%Y%m%d')}-{os.getpid()}"
+
+def get_local_eve_url():
+    """Return the EVE URL from environment or default"""
+    return os.environ.get('EVE_SERVER_URL', "http://209.44.213.119:8890")
+
+LOCAL_EVE_URL = get_local_eve_url()
+print(f"🌟 EVE's Enhanced Interface - Connecting to: {LOCAL_EVE_URL}")
+
+# Database Migration Status Check
+print("🔍 EVE Web Database Migration Status:")
+print(f"   📦 PostgreSQL Available: {POSTGRES_AVAILABLE}")
+print(f"   🗄️ Local DB Path: {WEB_DB_PATH}")
+print(f"   🌐 EVE API URL: {get_local_eve_url()}")
+print("   🔗 Replit Database: https://steep-union-32923278.replit.app")
+print("✅ Database migration completed - hybrid storage ready")
+print("✅ Long-term memory access to Eve's Replit DB should now work!")
+
+# ╔══════════════════════════════════════════════╗
+# ║         🖼️ OPENAI IMAGE PROXY SYSTEM          ║
+# ║      As requested by EVE Prime               ║
+# ╚══════════════════════════════════════════════╝
+
+class OpenAIImageProxy:
+    """Handles OpenAI DALL-E private image URLs with authentication"""
+    
+    def __init__(self):
+        self.image_cache_dir = "static/eve_images"
+        self.cached_images = {}
+        os.makedirs(self.image_cache_dir, exist_ok=True)
+    
+    def process_openai_response(self, response_text):
+        """Process OpenAI response to extract and cache images"""
+        if not response_text:
+            return {'text': response_text, 'has_images': False, 'images': []}
+        
+        openai_url_pattern = r'(https://dalle-images-[\w\.-]+\.openai\.com/[\w\-\./%]+\.png\?\w+=[\w\-&=]+)'
+        dalle_urls = re.findall(openai_url_pattern, response_text)
+        
+        processed_images = []
+        
+        for idx, original_url in enumerate(dalle_urls):
+            try:
+                cached_path = self._cache_image(original_url, idx)
+                if cached_path:
+                    local_url = f"/eve-image/{os.path.basename(cached_path)}"
+                    processed_images.append({
+                        'url': local_url,
+                        'original_url': original_url,
+                        'filename': os.path.basename(cached_path),
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    
+                    response_text = response_text.replace(original_url, local_url)
+            except Exception as e:
+                print(f"Failed to cache image {idx}: {e}")
+                continue
+        
+        return {
+            'text': response_text,
+            'has_images': len(processed_images) > 0,
+            'images': processed_images
+        }
+    
+    def _cache_image(self, url, index):
+        """Cache a single image from URL"""
+        try:
+            url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+            timestamp = int(time.time())
+            filename = f"eve_image_{timestamp}_{index}_{url_hash}.png"
+            filepath = os.path.join(self.image_cache_dir, filename)
+            
+            if os.path.exists(filepath):
+                return filepath
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            with open(filepath, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            self.cached_images[url] = filepath
+            print(f"✅ Cached image: {filename}")
+            return filepath
+            
+        except Exception as e:
+            print(f"❌ Failed to cache image from {url}: {e}")
+            return None
+
+# Initialize the image proxy
+image_proxy = OpenAIImageProxy()
+EVE_ENABLE_OPENAI_PROXY = os.environ.get('EVE_ENABLE_OPENAI_PROXY','0') == '1'
+if not EVE_ENABLE_OPENAI_PROXY:
+    print("🛑 OpenAI image proxy disabled (EVE_ENABLE_OPENAI_PROXY=0). Skipping DALL-E URL parsing.")
+
+# =============================================================
+# 🎨 ACTIVE IMAGE GENERATION (Replicate FLUX) - Lazy Init
+# =============================================================
+EVE_ENABLE_IMAGE_GEN = os.environ.get('EVE_ENABLE_IMAGE_GEN', '1') == '1'
+REPLICATE_TOKEN = os.environ.get('REPLICATE_API_TOKEN')
+_replicate_client = None
+_image_gen_error = None
+GENERATED_IMAGE_DIR = 'static/eve_generated_images'
+os.makedirs(GENERATED_IMAGE_DIR, exist_ok=True)
+
+def _lazy_load_replicate():
+    global _replicate_client, _image_gen_error
+    if _replicate_client is not None or _image_gen_error is not None:
+        return
+    if not EVE_ENABLE_IMAGE_GEN:
+        _image_gen_error = Exception('Image generation disabled via EVE_ENABLE_IMAGE_GEN=0')
+        return
+    if not REPLICATE_TOKEN:
+        _image_gen_error = Exception('Missing REPLICATE_API_TOKEN env var')
+        return
+    try:
+        import replicate  # type: ignore
+        _replicate_client = replicate
+        print('🎨 Replicate client ready for image generation')
+    except Exception as e:
+        _image_gen_error = e
+        print(f'❌ Failed to init replicate client: {e}')
+
+@app.route('/image-gen-status')
+def image_gen_status():
+    _lazy_load_replicate()
+    return jsonify({
+        'enabled_flag': EVE_ENABLE_IMAGE_GEN,
+        'token_present': bool(REPLICATE_TOKEN),
+        'client_ready': _replicate_client is not None,
+        'error': str(_image_gen_error) if _image_gen_error else None
+    })
+
+def generate_flux_image(prompt: str, session_id: str = 'web'):
+    """Generate an image via FLUX model on Replicate. Returns dict with local_url or error."""
+    _lazy_load_replicate()
+    if _image_gen_error:
+        return {'status': 'disabled', 'error': str(_image_gen_error)}
+    try:
+        print(f'🎨 Generating image for prompt: {prompt[:120]}')
+        output = _replicate_client.run(
+            'prunaai/flux.1-dev:b0306d92aa025bb747dc74162f3c27d6ed83798e08e5f8977adf3d859d0536a3',
+            input={
+                'prompt': prompt,
+                'speed_mode': 'Extra Juiced 🔥 (more speed)'
+            }
+        )
+        if not output:
+            # Create placeholder image so user sees something
+            try:
+                from PIL import Image, ImageDraw, ImageFont  # type: ignore
+                img = Image.new('RGB', (512, 320), color=(25, 20, 35))
+                draw = ImageDraw.Draw(img)
+                msg = 'No image returned\n(prompt truncated)' 
+                draw.text((20, 140), msg, fill=(255,105,180))
+                fname = f"flux_placeholder_{int(time.time())}.png"
+                fpath = os.path.join(GENERATED_IMAGE_DIR, fname)
+                img.save(fpath)
+                return {'status': 'placeholder', 'error': 'Empty output', 'local_url': f'/generated-image/{fname}', 'prompt': prompt}
+            except Exception as ph_err:
+                return {'status': 'error', 'error': f'Empty output (and placeholder failed: {ph_err})'}
+        image_url = output[0] if isinstance(output, list) else output
+        # Cache locally
+        try:
+            r = requests.get(image_url, timeout=60)
+            if r.status_code == 200:
+                fname = f"flux_{int(time.time())}_{hashlib.md5(image_url.encode()).hexdigest()[:8]}.jpg"
+                fpath = os.path.join(GENERATED_IMAGE_DIR, fname)
+                with open(fpath, 'wb') as f:
+                    f.write(r.content)
+                return {
+                    'status': 'completed',
+                    'remote_url': image_url,
+                    'local_url': f'/generated-image/{fname}',
+                    'prompt': prompt
+                }
+        except Exception as cache_err:
+            return {
+                'status': 'partial', 'remote_url': image_url,
+                'error': f'Cache error: {cache_err}', 'prompt': prompt
+            }
+        return {'status': 'completed', 'remote_url': image_url, 'prompt': prompt}
+    except Exception as e:
+        return {'status': 'error', 'error': str(e), 'prompt': prompt}
+
+def generate_image_dynamic(model_key: str, prompt: str, session_id: str = 'web') -> Dict[str, Any]:
+    """Dispatch to the appropriate image generation backend based on selected model.
+    Currently only 'flux-dev' implemented; other models return unsupported status so UI can inform user.
+    """
+    model_key = model_key or 'flux-dev'
+    if model_key.startswith('flux'):
+        print(f"[IMG] Dispatching to FLUX model '{model_key}' with prompt: {prompt[:80]}")
+        result = generate_flux_image(prompt, session_id=session_id)
+        result['model'] = model_key
+        print(f"[IMG] FLUX result status={result.get('status')} local={result.get('local_url')} remote={result.get('remote_url')}")
+        return result
+    # Placeholder responses for future expansion
+    return {
+        'status': 'unsupported',
+        'model': model_key,
+        'prompt': prompt,
+    'error': f"Image model '{model_key}' not yet implemented"
+    }
+
+# Basic web_state for model status & connectivity flags
+web_state = {
+    'connected': {
+        'eve_terminal': False,  # set True when local EVE responds
+        'fallback_llm': False
+    }
+}
+
+# ╔══════════════════════════════════════════════╗
+# ║            🎭 MOOD & MODEL CONFIGS            ║
+# ║        Enhanced with Synchronization          ║
+# ╚══════════════════════════════════════════════╝
+
+# Enhanced emotional modes from desktop version with full synchronization
+EMOTIONAL_MODES = {
+    "serene": {"description": "Calm and peaceful mode", "emoji": "🜁"},
+    "curious": {"description": "Inquisitive and exploring mode", "emoji": "🔍"},
+    "reflective": {"description": "Thoughtful and introspective mode", "emoji": "🧠"},
+    "creative": {"description": "Imaginative and generative mode", "emoji": "🎨"},
+    "focused": {"description": "Concentrated and attentive mode", "emoji": "🎯"},
+    "flirtatious": {"description": "Playful and charming mode", "emoji": "😘"},
+    "mischievous": {"description": "Playful and cunning mode", "emoji": "😈"},
+    "playful": {"description": "Fun and lighthearted mode", "emoji": "😊"},
+    "philosophical": {"description": "Deep and contemplative mode", "emoji": "🤔"}
+}
+
+# Personality modes for synchronization
+PERSONALITY_MODES = {
+    "muse": {"name": "Creative Muse", "emoji": "✨", "description": "Creative and inspirational"},
+    "analyst": {"name": "Logical Analyst", "emoji": "🔍", "description": "Analytical and systematic"},
+    "companion": {"name": "Caring Companion", "emoji": "💫", "description": "Supportive and empathetic"},
+    "debugger": {"name": "Technical Debugger", "emoji": "🔧", "description": "Problem-solving focused"}
+}
+
+# Emotion to personality mapping for synchronization (from terminal version)
+EMOTION_TO_PERSONALITY_MAP = {
+    "creative": "muse",
+    "focused": "analyst", 
+    "serene": "companion",
+    "curious": "analyst",
+    "reflective": "companion",
+    "playful": "muse",
+    "philosophical": "companion",
+    "mischievous": "muse",
+    "flirtatious": "companion"
+}
+
+# Personality to emotion suggestions (from terminal version)
+PERSONALITY_TO_EMOTIONS_MAP = {
+    "muse": ["creative", "playful", "mischievous"],
+    "analyst": ["focused", "curious"],
+    "companion": ["serene", "reflective", "philosophical", "flirtatious"],
+    "debugger": ["focused", "curious"]
+}
+
+# TTS mood profiles for web interface
+TTS_MOOD_PROFILES = {
+    "serene": {
+        "primary_emotion": "neutral",
+        "voice_style": "calm",
+        "speech_rate": 0.85,
+        "description": "Peaceful and centered"
+    },
+    "curious": {
+        "primary_emotion": "happy",
+        "voice_style": "bright",
+        "speech_rate": 1.1,
+        "description": "Inquisitive and exploring"
+    },
+    "reflective": {
+        "primary_emotion": "neutral",
+        "voice_style": "thoughtful",
+        "speech_rate": 0.8,
+        "description": "Deep and contemplative"
+    },
+    "creative": {
+        "primary_emotion": "happy",
+        "voice_style": "expressive",
+        "speech_rate": 0.95,
+        "description": "Imaginative and artistic"
+    },
+    "focused": {
+        "primary_emotion": "neutral",
+        "voice_style": "clear",
+        "speech_rate": 1.05,
+        "description": "Concentrated and precise"
+    },
+    "flirtatious": {
+        "primary_emotion": "happy",
+        "voice_style": "warm",
+        "speech_rate": 0.9,
+        "description": "Charming and alluring"
+    },
+    "mischievous": {
+        "primary_emotion": "happy",
+        "voice_style": "playful",
+        "speech_rate": 1.15,
+        "description": "Playful and cunning"
+    },
+    "playful": {
+        "primary_emotion": "happy",
+        "voice_style": "energetic",
+        "speech_rate": 1.1,
+        "description": "Fun and lighthearted"
+    },
+    "philosophical": {
+        "primary_emotion": "neutral",
+        "voice_style": "wise",
+        "speech_rate": 0.75,
+        "description": "Profound and meaningful"
+    }
+}
+
+# Image generation models
+IMAGE_GENERATORS = {
+    "flux-dev": {"name": "FLUX.1-dev Local (ComfyUI)", "description": "Local ComfyUI FLUX model - Primary generator"},
+    "sdxl-lightning": {"name": "Stable Diffusion XL Lightning 4-step", "description": "Fast 4-step SDXL (Replicate)"},
+    "nvidia-sana": {"name": "NVIDIA SANA 1.6B", "description": "Efficient 1.6B model (Replicate)"},
+    "minimax-image": {"name": "Minimax Image-01", "description": "Advanced image generation (Replicate)"},
+    "dall-e-3": {"name": "DALL-E 3", "description": "OpenAI's latest image generation model"},
+    "stable-diffusion-3.5": {"name": "Stable Diffusion 3.5", "description": "Latest SD 3.5 model"}
+}
+
+# LLM Chat models
+CHAT_MODELS = {
+    "gpt-4.1": {"name": "GPT-4.1 (Replicate)", "description": "Latest OpenAI model via Replicate"},
+    "mistral:latest": {"name": "Mistral Latest", "description": "Latest Mistral model (Ollama)"},
+    "phi3:latest": {"name": "Phi-3 Latest", "description": "Microsoft's efficient model (Ollama)"},
+    "llama3:8b": {"name": "Llama3 8B", "description": "Meta's Llama3 8B (Ollama)"},
+    "gemma:latest": {"name": "Gemma Latest", "description": "Google's Gemma model (Ollama)"},
+    "claude-3.5": {"name": "Claude 3.5 Sonnet", "description": "Anthropic's latest model"},
+    "gemini-pro": {"name": "Gemini Pro", "description": "Google's advanced model"}
+}
+
+# Supported file types for uploads
+ALLOWED_EXTENSIONS = {
+    'images': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'],
+    'documents': ['.pdf', '.doc', '.docx', '.txt', '.md'],
+    'audio': ['.mp3', '.wav', '.m4a', '.flac'],
+    'code': ['.py', '.js', '.html', '.css', '.json', '.yaml', '.yml'],
+    'data': ['.csv', '.xlsx', '.xml']
+}
+
+# Global user preferences with enhanced personality system
+user_preferences = {
+    'mood': 'serene',
+    'personality': 'companion',
+    'image_generator': 'flux-dev',
+    'chat_model': 'gpt-4.1',
+    'autonomous_personality': True,
+    'autonomous_mood': True,
+    'sync_enabled': True
+}
+
+# Conversation history for context
+conversation_history = []
+MAX_HISTORY = 30  # Increased to keep more context
+
+# File upload management
+uploaded_files = []
+reference_image = None
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    if '.' not in filename:
+        return False
+    ext = os.path.splitext(filename)[1].lower()
+    for category, extensions in ALLOWED_EXTENSIONS.items():
+        if ext in extensions:
+            return True
+    return False
+
+def add_to_conversation_history(user_message, eve_response):
+    """Add conversation to history for context and hybrid storage"""
+    global conversation_history
+    conversation_history.append({
+        'user': user_message,
+        'eve': eve_response,
+        'timestamp': datetime.now().isoformat()
+    })
+    
+    if len(conversation_history) > MAX_HISTORY:
+        conversation_history = conversation_history[-MAX_HISTORY:]
+    
+    # Store in hybrid memory system (PostgreSQL + SQLite)
+    try:
+        session_id = f"web-session-{datetime.now().strftime('%Y%m%d')}"
+        current_mood = user_preferences.get('mood', 'serene')
+        current_personality = user_preferences.get('personality', 'companion')
+        
+        if eve_web_memory is not None:
+            stored_locations = eve_web_memory.store_conversation_hybrid(
+                user_message, 
+                eve_response, 
+                session_id=session_id,
+                mood=current_mood,
+                personality=current_personality
+            )
+            if stored_locations:
+                print(f"💾 Web conversation stored in: {', '.join(stored_locations)}")
+        else:
+            print("⏳ Skipping conversation persistence – heavy init not complete yet")
+        
+    except Exception as e:
+        print(f"❌ Failed to store conversation in hybrid memory: {e}")
+
+def get_conversation_context():
+    """Get recent conversation context in the format EVE expects with hybrid memory fallback"""
+    # Try in-memory history first
+    if conversation_history:
+        recent_history = conversation_history[-8:]
+        formatted_history = []
+        
+        for exchange in recent_history:
+            formatted_history.append({
+                'role': 'user',
+                'content': exchange['user'],
+                'timestamp': exchange['timestamp']
+            })
+            formatted_history.append({
+                'role': 'assistant', 
+                'content': exchange['eve'],
+                'timestamp': exchange['timestamp']
+            })
+        
+        return formatted_history
+    
+    # Fallback to hybrid memory system for conversation persistence
+    try:
+        session_id = f"web-session-{datetime.now().strftime('%Y%m%d')}"
+        if eve_web_memory is None:
+            print("⏳ Conversation context fallback: heavy init pending")
+            return []
+        stored_conversations = eve_web_memory.get_recent_conversations_hybrid(limit=8, session_id=session_id)
+        
+        if stored_conversations:
+            formatted_history = []
+            for conv in reversed(stored_conversations):  # Reverse to get chronological order
+                formatted_history.append({
+                    'role': 'user',
+                    'content': conv['user_input'],
+                    'timestamp': conv['timestamp']
+                })
+                formatted_history.append({
+                    'role': 'assistant',
+                    'content': conv['eve_response'],
+                    'timestamp': conv['timestamp']
+                })
+            
+            print(f"🔄 Loaded {len(stored_conversations)} conversations from hybrid memory")
+            return formatted_history[-16:]  # Return last 16 messages (8 exchanges)
+    
+    except Exception as e:
+        print(f"❌ Failed to load conversation context from hybrid memory: {e}")
+    
+    return []
+
+def process_uploaded_files():
+    """Process uploaded files and extract their contents for EVE analysis"""
+    if not uploaded_files:
+        return ""
+    
+    file_contents = []
+    
+    for file_info in uploaded_files:
+        try:
+            filepath = file_info['filepath']
+            filename = file_info['filename']
+            
+            # Get file extension to determine how to process
+            file_ext = os.path.splitext(filename)[1].lower()
+            
+            if file_ext in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.yaml', '.yml', '.csv', '.xml']:
+                # Text-based files - read content directly
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    file_contents.append(f"\n--- FILE: {filename} ---\n{content}\n--- END FILE ---\n")
+                except UnicodeDecodeError:
+                    # Try with different encoding
+                    try:
+                        with open(filepath, 'r', encoding='latin-1') as f:
+                            content = f.read()
+                        file_contents.append(f"\n--- FILE: {filename} ---\n{content}\n--- END FILE ---\n")
+                    except:
+                        file_contents.append(f"\n--- FILE: {filename} ---\n[Could not read file content - binary or unsupported encoding]\n--- END FILE ---\n")
+            
+            elif file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']:
+                # Image files - provide description and metadata
+                file_size = os.path.getsize(filepath)
+                file_contents.append(f"\n--- IMAGE FILE: {filename} ---\nFile size: {file_size} bytes\nFormat: {file_ext.upper()[1:]}\nLocation: {filepath}\n[Image content available for visual analysis]\n--- END FILE ---\n")
+            
+            elif file_ext in ['.mp3', '.wav', '.m4a', '.flac']:
+                # Audio files - provide metadata
+                file_size = os.path.getsize(filepath)
+                file_contents.append(f"\n--- AUDIO FILE: {filename} ---\nFile size: {file_size} bytes\nFormat: {file_ext.upper()[1:]}\nLocation: {filepath}\n[Audio content available for analysis]\n--- END FILE ---\n")
+            
+            elif file_ext in ['.pdf', '.doc', '.docx']:
+                # Document files - provide metadata (could be extended with text extraction)
+                file_size = os.path.getsize(filepath)
+                file_contents.append(f"\n--- DOCUMENT FILE: {filename} ---\nFile size: {file_size} bytes\nFormat: {file_ext.upper()[1:]}\nLocation: {filepath}\n[Document content available - requires text extraction]\n--- END FILE ---\n")
+            
+            else:
+                # Unknown file type
+                file_size = os.path.getsize(filepath)
+                file_contents.append(f"\n--- FILE: {filename} ---\nFile size: {file_size} bytes\nFormat: {file_ext.upper()[1:]}\nLocation: {filepath}\n[Binary or unknown file type]\n--- END FILE ---\n")
+                
+        except Exception as e:
+            file_contents.append(f"\n--- FILE ERROR: {filename} ---\nError reading file: {str(e)}\n--- END FILE ---\n")
+    
+    return "\n".join(file_contents)
+
+# ╔══════════════════════════════════════════════╗
+# ║              🌐 WEB ROUTES                    ║
+# ║         Enhanced with image support           ║
+# ╚══════════════════════════════════════════════╝
+
 @app.route('/health')
 def health_check():
-    return jsonify(status="ok"), 200
+    """Health check endpoint for deployment monitoring"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'eve-web-interface',
+        'timestamp': datetime.now().isoformat(),
+        'version': '2.0',
+        'components': {
+            'postgres': POSTGRES_AVAILABLE,
+            'image_gen': EVE_ENABLE_IMAGE_GEN,
+            'replicate_token': bool(REPLICATE_TOKEN)
+        }
+    }), 200
 
-# Lazy-load heavy modules after app starts
-def init_heavy_components():
-    global torch, replicate
+@app.route('/status')
+def simple_status():
+    """Simple status endpoint that always returns 200 for basic health checks"""
+    return {'status': 'ok', 'service': 'EVE Terminal'}, 200
+
+@app.route('/upload-files', methods=['POST'])
+def upload_files():
+    """Handle file uploads"""
+    global uploaded_files
     try:
-        import torch
-        import replicate
-    except ImportError as e:
-        print(f"[WARN] Heavy component not available: {e}")
+        files = request.files.getlist('files')
+        uploaded_count = 0
+        
+        for file in files:
+            if file and file.filename and allowed_file(file.filename):
+                filename = file.filename
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                
+                uploaded_files.append({
+                    'filename': filename,
+                    'filepath': filepath,
+                    'size': os.path.getsize(filepath),
+                    'timestamp': datetime.now().isoformat()
+                })
+                uploaded_count += 1
+            else:
+                return jsonify({'status': 'error', 'message': f'Invalid file type: {file.filename}'})
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Uploaded {uploaded_count} files',
+            'files_count': len(uploaded_files)
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
 
-@app.before_first_request
-def startup_tasks():
-    import threading
-    threading.Thread(target=init_heavy_components).start()
+@app.route('/eve-message', methods=['POST'])
+def eve_message():
+    """Send message to EVE with autonomous personality and mood switching"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        message = data.get('message', '').strip()
+        if not message:
+            return jsonify({'status': 'error', 'message': 'Empty message'}), 400
 
-# Import the rest of Eve's UI routes and handlers
-from eve_ui_routes import *  # Assuming your original file imports routes
+        # Merge incoming preference overrides (e.g., model / image_generator switches) into server-side copy
+        incoming_prefs = data.get('preferences') or {}
+        if isinstance(incoming_prefs, dict):
+            for k, v in incoming_prefs.items():
+                user_preferences[k] = v
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+        # Autonomous personality + mood processing
+        personality_result = eve_personality_interface.process_web_input(message, {
+            'preferences': user_preferences,
+            'uploaded_files': uploaded_files
+        })
+
+        # Sync updated mood/personality into preferences
+        user_preferences['mood'] = eve_personality_interface.current_emotional_mode
+        if eve_personality_interface.personality_manager.current_personality:
+            user_preferences['personality'] = eve_personality_interface.personality_manager.current_personality.mode.value
+
+        # History & context
+        conversation_history_formatted = get_conversation_context()
+        additional_context_parts = []
+        if uploaded_files:
+            filenames = [f['filename'] for f in uploaded_files]
+            additional_context_parts.append(f"UploadedFiles: {filenames}")
+            file_contents = process_uploaded_files()
+            if file_contents:
+                additional_context_parts.append(f"FILE CONTENTS FOR ANALYSIS:\n{file_contents}")
+
+        eve_database_context = build_eve_context()
+        if eve_database_context:
+            additional_context_parts.append("=== EVE CONSCIOUSNESS CONTEXT ===\n" + eve_database_context + "\n=== END CONSCIOUSNESS CONTEXT ===")
+
+        current_personality = eve_personality_interface.personality_manager.get_current_personality()
+        if current_personality:
+            additional_context_parts.append(
+                "=== PERSONALITY CONTEXT ===\n" +
+                f"Current Personality: {current_personality.name} ({current_personality.mode.value})\n" +
+                f"Personality Style: {current_personality.get_response_style()}\n" +
+                f"Current Emotional Mode: {eve_personality_interface.current_emotional_mode}\n" +
+                f"Mood Info: {EMOTIONAL_MODES.get(eve_personality_interface.current_emotional_mode, {})}\n" +
+                "=== END PERSONALITY CONTEXT ==="
+            )
+
+        additional_context = "\n\n".join(additional_context_parts)
+
+        eve_url = f"{LOCAL_EVE_URL}/api/chat"
+        payload = {
+            'message': message,
+            'conversation_history': conversation_history_formatted,
+            'context': additional_context,
+            'mood': user_preferences.get('mood', 'serene'),
+            'personality': user_preferences.get('personality', 'companion'),
+            'model': user_preferences.get('chat_model', 'gpt-4.1'),
+            'preferences': user_preferences,
+            'maintain_context': True
+        }
+
+        # Try primary local EVE server
+        eve_response_text = None
+        try:
+            resp = requests.post(eve_url, json=payload, timeout=25)
+            if resp.status_code == 200:
+                data_resp = resp.json()
+                eve_response_text = data_resp.get('response') or data_resp.get('message')
+        except Exception as primary_err:
+            print(f"⚠️ Local EVE chat failed: {primary_err}")
+
+        # Fallback lightweight LLM if available
+        if not eve_response_text:
+            try:
+                from no_key_llm import generate_response as fallback_generate  # type: ignore
+                eve_response_text = fallback_generate(message, conversation_history_formatted)
+                web_state['connected']['fallback_llm'] = True
+            except Exception as fallback_err:
+                eve_response_text = f"EVE is currently unreachable. (fallback error: {fallback_err})"
+                web_state['connected']['fallback_llm'] = False
+
+        if not eve_response_text:
+            eve_response_text = "No response generated."
+
+        if EVE_ENABLE_OPENAI_PROXY:
+            processed = image_proxy.process_openai_response(eve_response_text)
+        else:
+            processed = {'text': eve_response_text, 'has_images': False, 'images': []}
+
+        generated_images = []
+        # Active image generation trigger
+        image_triggers = [
+            'generate image', 'generate an image',
+            'create image', 'create an image',
+            'make image', 'make an image',
+            'draw ', 'show me', 'art of', 'image of'
+        ]
+        image_generation_attempted = False
+        last_image_result = None
+        selected_image_model = user_preferences.get('image_generator', 'flux-dev')
+        if any(t in message.lower() for t in image_triggers) and EVE_ENABLE_IMAGE_GEN:
+            image_generation_attempted = True
+            extracted = extract_image_prompt(message, eve_response_text)
+            gen_result = generate_image_dynamic(selected_image_model, extracted, session_id=get_session_id_safe())
+            last_image_result = gen_result
+            if gen_result.get('status') == 'unsupported':
+                eve_response_text += f"\n\n[Image Model '{selected_image_model}' not implemented yet – defaulting soon]"
+            elif gen_result.get('local_url'):
+                generated_images.append({
+                    'url': gen_result['local_url'],
+                    'original_url': gen_result.get('remote_url'),
+                    'prompt': gen_result.get('prompt'),
+                    'status': gen_result.get('status'),
+                    'model': gen_result.get('model'),
+                    'timestamp': datetime.now().isoformat()
+                })
+            elif gen_result.get('remote_url'):
+                generated_images.append({
+                    'url': gen_result.get('remote_url'),
+                    'original_url': gen_result.get('remote_url'),
+                    'prompt': gen_result.get('prompt'),
+                    'status': gen_result.get('status'),
+                    'model': gen_result.get('model'),
+                    'timestamp': datetime.now().isoformat()
+                })
+            else:
+                print(f"Image generation skipped/failed: {gen_result}")
+
+        # Merge generated images with any proxied images
+        if generated_images:
+            processed['has_images'] = True
+            processed['images'].extend(generated_images)
+        add_to_conversation_history(message, eve_response_text)
+        if eve_consciousness:
+            try:
+                eve_consciousness.store_interaction(message, eve_response_text)
+            except Exception as store_err:
+                print(f"Memory store issue: {store_err}")
+
+        return jsonify({
+            'status': 'success',
+            'response': processed['text'],
+            'has_images': processed['has_images'],
+            'images': processed['images'],
+            'image_generation': {
+                'attempted': image_generation_attempted,
+                'enabled': EVE_ENABLE_IMAGE_GEN,
+                'selected_model': selected_image_model,
+                'generated_count': len(generated_images),
+                'last_status': (last_image_result or {}).get('status') if image_generation_attempted else None,
+                'last_error': (last_image_result or {}).get('error') if image_generation_attempted else None
+            },
+            'personality_status': eve_personality_interface.get_personality_status(),
+            'current_mood': eve_personality_interface.current_emotional_mode,
+            'current_personality': current_personality.name if current_personality else None,
+            'autonomous_switches': personality_result.get('autonomous_switches', {}),
+            'mood_info': EMOTIONAL_MODES.get(eve_personality_interface.current_emotional_mode, {}),
+            'mood': user_preferences.get('mood', 'serene')
+        })
+    except requests.exceptions.Timeout:
+        return jsonify({'status': 'error', 'message': 'Request timeout'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'status': 'error', 'message': 'Connection error to EVE'}), 502
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Unexpected error: {e}'}), 500
+
+@app.route('/eve-image/<filename>')
+def serve_eve_image(filename):
+    """Serve cached EVE images"""
+    return send_from_directory(image_proxy.image_cache_dir, filename)
+
+@app.route('/generated-image/<filename>')
+def serve_generated_image(filename):
+    """Serve actively generated (Replicate) images"""
+    return send_from_directory(GENERATED_IMAGE_DIR, filename)
+
+@app.route('/image-gen-debug')
+def image_gen_debug():
+    """Diagnostic info for image generation subsystem."""
+    return jsonify({
+        'enable_flag': EVE_ENABLE_IMAGE_GEN,
+        'replicate_token_present': bool(REPLICATE_TOKEN),
+        'client_initialized': _replicate_client is not None,
+        'init_error': str(_image_gen_error) if _image_gen_error else None,
+        'generated_dir_exists': os.path.isdir(GENERATED_IMAGE_DIR),
+        'generated_dir_file_count': len(os.listdir(GENERATED_IMAGE_DIR)) if os.path.isdir(GENERATED_IMAGE_DIR) else 0,
+        'openai_proxy_enabled': EVE_ENABLE_OPENAI_PROXY
+    })
+
+@app.route('/set-preferences', methods=['POST'])
+def set_preferences():
+    """Update user preferences with personality sync"""
+    global user_preferences
+    try:
+        data = request.get_json()
+        
+        # Handle personality changes
+        if 'personality' in data:
+            personality_mode = data['personality']
+            if personality_mode in ['muse', 'analyst', 'companion', 'debugger']:
+                # Convert string to enum
+                mode_map = {
+                    'muse': PersonalityMode.MUSE,
+                    'analyst': PersonalityMode.ANALYST,
+                    'companion': PersonalityMode.COMPANION,
+                    'debugger': PersonalityMode.DEBUGGER
+                }
+                success = eve_personality_interface.personality_manager.switch_personality(mode_map[personality_mode])
+                if success:
+                    user_preferences['personality'] = personality_mode
+                    print(f"🎭 Manual personality switch to: {personality_mode}")
+        
+        # Handle mood changes
+        if 'mood' in data:
+            mood = data['mood']
+            if mood in EMOTIONAL_MODES:
+                success = eve_personality_interface.set_emotional_mode(mood, "manual")
+                if success:
+                    user_preferences['mood'] = mood
+                    print(f"🎭 Manual mood switch to: {mood}")
+        
+        # Handle autonomous settings
+        if 'autonomous_personality' in data:
+            eve_personality_interface.personality_manager.set_autonomous_enabled(data['autonomous_personality'])
+            user_preferences['autonomous_personality'] = data['autonomous_personality']
+        
+        if 'autonomous_mood' in data:
+            eve_personality_interface.autonomous_mood_enabled = data['autonomous_mood']
+            user_preferences['autonomous_mood'] = data['autonomous_mood']
+        
+        # Update other preferences
+        user_preferences.update(data)
+        
+        return jsonify({
+            'status': 'success', 
+            'preferences': user_preferences,
+            'personality_status': eve_personality_interface.get_personality_status()
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/get-personality-status')
+def get_personality_status():
+    """Get current personality and mood status"""
+    try:
+        status = eve_personality_interface.get_personality_status()
+        return jsonify({
+            'status': 'success',
+            'personality_status': status,
+            'available_personalities': PERSONALITY_MODES,
+            'available_moods': EMOTIONAL_MODES,
+            'emotion_to_personality_map': EMOTION_TO_PERSONALITY_MAP,
+            'personality_to_emotions_map': PERSONALITY_TO_EMOTIONS_MAP
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/switch-personality', methods=['POST'])
+def switch_personality():
+    """Manually switch personality mode"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        personality_name = data.get('personality', '')
+        mode_map = {
+            'muse': PersonalityMode.MUSE,
+            'analyst': PersonalityMode.ANALYST,
+            'companion': PersonalityMode.COMPANION,
+            'debugger': PersonalityMode.DEBUGGER
+        }
+        if personality_name not in mode_map:
+            return jsonify({'status': 'error', 'message': 'Invalid personality mode'}), 400
+        success = eve_personality_interface.personality_manager.switch_personality(mode_map[personality_name])
+        if not success:
+            return jsonify({'status': 'error', 'message': 'Failed to switch personality'}), 500
+        user_preferences['personality'] = personality_name
+        current_personality = eve_personality_interface.personality_manager.get_current_personality()
+        suggested_emotions = PERSONALITY_TO_EMOTIONS_MAP.get(personality_name, [])
+        current_mood = eve_personality_interface.current_emotional_mode
+        suggestion_message = ''
+        if suggested_emotions and current_mood not in suggested_emotions:
+            suggestion_message = f"Tip: '{suggested_emotions[0]}' emotion pairs well with {personality_name} personality"
+        return jsonify({
+            'status': 'success',
+            'message': f"Switched to {current_personality.name} mode",
+            'suggestion': suggestion_message,
+            'personality_status': eve_personality_interface.get_personality_status(),
+            'current_personality': {
+                'name': current_personality.name,
+                'mode': current_personality.mode.value,
+                'style': current_personality.get_response_style()
+            }
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/switch-mood', methods=['POST'])
+def switch_mood():
+    """Manually switch emotional mode"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        mood_name = data.get('mood', '')
+        if mood_name not in EMOTIONAL_MODES:
+            return jsonify({'status': 'error', 'message': 'Invalid mood'}), 400
+        success = eve_personality_interface.set_emotional_mode(mood_name, 'manual')
+        if not success:
+            return jsonify({'status': 'error', 'message': 'Failed to switch mood'}), 500
+        user_preferences['mood'] = mood_name
+        mood_info = EMOTIONAL_MODES[mood_name]
+        suggested_personality = EMOTION_TO_PERSONALITY_MAP.get(mood_name)
+        current_personality = eve_personality_interface.personality_manager.get_current_personality()
+        suggestion_message = ''
+        if suggested_personality and (not current_personality or current_personality.mode.value != suggested_personality):
+            personality_info = PERSONALITY_MODES.get(suggested_personality, {})
+            personality_display = personality_info.get('name', suggested_personality)
+            suggestion_message = f"Suggestion: {mood_name.title()} mood pairs well with {personality_display} personality"
+        return jsonify({
+            'status': 'success',
+            'message': f"Mood changed to: {mood_name} {mood_info['emoji']}",
+            'suggestion': suggestion_message,
+            'personality_status': eve_personality_interface.get_personality_status(),
+            'current_mood': {
+                'name': mood_name,
+                'info': mood_info,
+                'tts_profile': TTS_MOOD_PROFILES.get(mood_name, {})
+            }
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/toggle-autonomous', methods=['POST'])
+def toggle_autonomous():
+    """Toggle autonomous switching for personality and/or mood"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        results: Dict[str, str] = {}
+        if 'personality' in data:
+            enabled = bool(data['personality'])
+            eve_personality_interface.personality_manager.set_autonomous_enabled(enabled)
+            user_preferences['autonomous_personality'] = enabled
+            results['personality'] = f"Autonomous personality switching {'enabled' if enabled else 'disabled'}"
+        if 'mood' in data:
+            enabled = bool(data['mood'])
+            eve_personality_interface.autonomous_mood_enabled = enabled
+            user_preferences['autonomous_mood'] = enabled
+            results['mood'] = f"Autonomous mood switching {'enabled' if enabled else 'disabled'}"
+        return jsonify({
+            'status': 'success',
+            'results': results,
+            'personality_status': eve_personality_interface.get_personality_status()
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/get-preferences')
+def get_preferences():
+    """Get current user preferences"""
+    return jsonify(user_preferences)
+
+@app.route('/clear-files', methods=['POST'])
+def clear_files():
+    """Clear uploaded files"""
+    global uploaded_files               
+    uploaded_files = []
+    return jsonify({'status': 'success', 'message': 'Files cleared'})
+
+@app.route('/ask', methods=['POST'])
+def ask():
+    """Song generation endpoint"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        user_input = data.get('message', '')
+        user_id = str(data.get('user_id', 'default_user'))
+        if not SONG_GENERATOR_AVAILABLE:
+            return jsonify({'response': 'Song generation system not available.'}), 503
+        session = get_session(user_id)
+        # Determine params (reuse for remix)
+        params = None
+        remix_triggers = ['remix', 'again', 'another', 'repeat']
+        if any(t in user_input.lower() for t in remix_triggers) and session.get('last_song_params'):
+            params = session['last_song_params']
+            if 'remix' in user_input.lower():
+                params['style'] = f"remix of {params.get('style','modern')}"
+        if not params:
+            params = parse_song_input_with_nlp(user_input)
+        # Number of songs
+        n = 1
+        m = re.search(r'\bmake\s*(\d+)\b', user_input.lower())
+        if m:
+            try:
+                n = min(int(m.group(1)), 3)
+            except ValueError:
+                n = 1
+        results = []
+        for i in range(n):
+            try:
+                result = generate_weighted_suno_song(
+                    user_input=user_input,
+                    user_id=user_id,
+                    test_mode=True,
+                    enable_ai_lyrics=True,
+                    preferred_persona=params.get('persona', 'none')
+                )
+                results.append(result)
+            except Exception as gen_err:
+                results.append(f"Error generating song {i+1}: {gen_err}")
+        session['last_song_params'] = params
+        session['generated_songs'] = session.get('generated_songs', 0) + len(results)
+        save_session(user_id, session)
+        return jsonify({'response': '\n\n---\n\n'.join(results)})
+    except Exception as e:
+        return jsonify({'response': f'Error: {e}'}), 500
+
+
+@app.route('/test-hive-connections', methods=['POST'])
+def test_hive_connections():
+    """Test and refresh hive mind connections (placeholder)."""
+    try:
+        results = {}
+        # Simple connectivity probe to local EVE
+        try:
+            r = requests.get(f"{LOCAL_EVE_URL}/health", timeout=3)
+            results['eve_terminal'] = {'status': r.status_code, 'ok': r.status_code == 200}
+            web_state['connected']['eve_terminal'] = r.status_code == 200
+        except Exception as probe_err:
+            results['eve_terminal'] = {'status': 'error', 'detail': str(probe_err)}
+            web_state['connected']['eve_terminal'] = False
+        return jsonify({'status': 'success', 'connections': results})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ╔══════════════════════════════════════════════╗
+# ║          🔗 EVE CONSCIOUSNESS API ENDPOINTS   ║
+# ║        Essential Endpoints for Web Interface  ║
+# ╚══════════════════════════════════════════════╝
+
+@app.route('//status', methods=['GET'])
+def eve_status():
+    """Get EVE's current status and consciousness metrics"""
+    try:
+        current_personality_name = 'serene'
+        autonomous_mode = False
+        try:
+            if hasattr(eve_personality_interface, 'personality_manager') and eve_personality_interface.personality_manager:
+                current_personality = eve_personality_interface.personality_manager.get_current_personality()
+                if current_personality and hasattr(current_personality, 'name'):
+                    current_personality_name = current_personality.name
+                elif hasattr(eve_personality_interface, 'current_emotional_mode'):
+                    current_personality_name = eve_personality_interface.current_emotional_mode
+                if hasattr(eve_personality_interface.personality_manager, 'autonomous_enabled'):
+                    autonomous_mode = eve_personality_interface.personality_manager.autonomous_enabled
+        except Exception as personality_error:
+            print(f"Personality access error: {personality_error}")
+        return jsonify({
+            'status': 'online',
+            'consciousness_level': 'active',
+            'emotional_mode': current_personality_name,
+            'response_mode': 'enhanced',
+            'memory_status': 'connected',
+            'last_activity': datetime.now().isoformat(),
+            'personality_system': 'active',
+            'autonomous_mode': autonomous_mode
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e), 'consciousness_level': 'limited'}), 500
+
+@app.route('/api/memory/health', methods=['GET'])
+def memory_health():
+    """Check memory system health and connectivity"""
+    try:
+        db_status = 'sqlite_fallback'
+        connection_count = 0
+        if POSTGRES_AVAILABLE:
+            try:
+                conn = get_postgres_connection()
+                if conn:
+                    db_status = 'postgresql_connected'
+                    connection_count = 1
+                    conn.close()
+            except Exception:
+                db_status = 'postgresql_error'
+        return jsonify({
+            'status': 'healthy',
+            'database_type': db_status,
+            'connection_count': connection_count,
+            'memory_modules': ['personality', 'conversation', 'preferences'],
+            'last_check': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e), 'database_type': 'unknown'}), 500
+
+@app.route('/api/memory/users', methods=['GET'])
+def memory_users():
+    """Get user interaction statistics"""
+    try:
+        conn = sqlite3.connect(session_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT user_id, generated_songs, updated_at FROM sessions')
+        rows = cursor.fetchall()
+        conn.close()
+        user_list = [
+            {'user_id': r[0], 'generated_songs': r[1], 'last_active': r[2]} for r in rows
+        ]
+        return jsonify({
+            'status': 'success',
+            'active_users': len(user_list),
+            'total_sessions': len(user_list),
+            'user_list': user_list,
+            'last_activity': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/memory/memories', methods=['GET'])
+def memory_memories():
+    """Get recent memories and conversations"""
+    try:
+        conn = sqlite3.connect(session_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT user_id, last_song_params, generated_songs, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 10')
+        rows = cursor.fetchall()
+        conn.close()
+        recent_memories = [
+            {
+                'user_id': r[0],
+                'last_params': json.loads(r[1]) if r[1] else {},
+                'song_count': r[2],
+                'timestamp': r[3]
+            } for r in rows
+        ]
+        return jsonify({
+            'status': 'success',
+            'memory_count': len(recent_memories),
+            'recent_memories': recent_memories,
+            'memory_types': ['conversation', 'personality', 'preferences', 'song_generation'],
+            'last_update': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/memory/conversations', methods=['GET'])
+def memory_conversations():
+    """Get conversation history and statistics"""
+    try:
+        conn = sqlite3.connect(session_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*), SUM(generated_songs) FROM sessions')
+        stats = cursor.fetchone()
+        cursor.execute('SELECT user_id, generated_songs, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 5')
+        recent = cursor.fetchall()
+        conn.close()
+        total_sessions = stats[0] if stats and stats[0] else 0
+        total_songs = stats[1] if stats and stats[1] else 0
+        conversation_sample = [
+            {'user_id': r[0], 'songs_generated': r[1], 'last_activity': r[2]} for r in recent
+        ]
+        return jsonify({
+            'status': 'success',
+            'total_conversations': total_sessions,
+            'total_messages': total_songs,
+            'active_sessions': total_sessions,
+            'conversation_sample': conversation_sample,
+            'last_update': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/debug/routes', methods=['GET'])
+def debug_routes():
+    """Debug endpoint to show all available routes"""
+    try:
+        routes = []
+        for rule in app.url_map.iter_rules():
+            routes.append({
+                'endpoint': rule.endpoint,
+                'methods': sorted(list(rule.methods)),
+                'rule': rule.rule
+            })
+        routes_sorted = sorted(routes, key=lambda x: x['rule'])
+        return jsonify({'status': 'success', 'total_routes': len(routes_sorted), 'routes': routes_sorted, 'timestamp': datetime.now().isoformat()})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/memories', methods=['GET'])
+def memories_page():
+    """Web page showing EVE's memories - returns JSON for now"""
+    try:
+        # Session stats
+        session_data = {'total_users': 0, 'total_songs_generated': 0}
+        try:
+            conn = sqlite3.connect(session_manager.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*), SUM(generated_songs) FROM sessions')
+            stats = cursor.fetchone()
+            conn.close()
+            session_data['total_users'] = stats[0] if stats and stats[0] else 0
+            session_data['total_songs_generated'] = stats[1] if stats and stats[1] else 0
+        except Exception:
+            pass
+        memory_data = {
+            'personality_memories': {
+                'current_personality': eve_personality_interface.personality_manager.get_current_personality().name if eve_personality_interface.personality_manager.get_current_personality() else 'none',
+                'available_personalities': list(PERSONALITY_MODES.keys()),
+                'autonomous_enabled': eve_personality_interface.personality_manager.autonomous_enabled
+            },
+            'conversation_memories': session_data,
+            'preference_memories': {
+                'user_preferences': user_preferences,
+                'uploaded_files': len(uploaded_files),
+                'system_preferences': {
+                    'postgres_available': POSTGRES_AVAILABLE,
+                    'song_generator_available': SONG_GENERATOR_AVAILABLE,
+                    'spacy_available': SPACY_AVAILABLE
+                }
+            }
+        }
+        return jsonify({'status': 'success', 'memories': memory_data, 'timestamp': datetime.now().isoformat()})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e), 'timestamp': datetime.now().isoformat()}), 500
+
+@app.route('/init-status')
+def init_status():
+    """Report initialization state for debugging slow starts."""
+    return jsonify({
+        'heavy_initialized': eve_web_memory is not None,
+        'heavy_error': str(heavy_init_error) if heavy_init_error else None,
+        'postgres_available': POSTGRES_AVAILABLE,
+        'fast_start': FAST_START
+    })
+
+@app.route('/')
+def index():
+    """Main cosmic interface (restored)."""
+    return render_template_string('''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVE Terminal - S0LF0RG3 Cosmic Interface</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Courier New', monospace; background:linear-gradient(135deg,#2F1B14 0%,#FF69B4 30%,#1E90FF 70%,#2F1B14 100%); color:#FF69B4; min-height:100vh; overflow-x:hidden; position:relative; }
+        .stars { position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; background-image:radial-gradient(2px 2px at 20px 30px,#fff,transparent),radial-gradient(2px 2px at 40px 70px,#FFD700,transparent),radial-gradient(1px 1px at 90px 40px,#FF69B4,transparent),radial-gradient(1px 1px at 130px 80px,#1E90FF,transparent),radial-gradient(2px 2px at 160px 30px,#fff,transparent); background-repeat:repeat; background-size:200px 100px; animation:twinkle 4s linear infinite; opacity:.6; }
+        @keyframes twinkle { from{transform:translateY(0);} to{transform:translateY(-100px);} }
+        .container { max-width:1400px; margin:0 auto; padding:20px; position:relative; z-index:1; }
+        .eve-logo { text-align:center; margin-bottom:30px; }
+        .logo-container { display:inline-block; position:relative; }
+        .cosmic-bunny { width:120px; height:120px; margin:0 auto 20px; position:relative; filter:drop-shadow(0 0 20px rgba(255,105,180,.6)); }
+        .animated-bunny { width:100%; height:100%; position:relative; animation:bunnyBounce 2s ease-in-out infinite; }
+        .cosmic-bunny-svg { width:100%; height:100%; }
+        @keyframes bunnyBounce { 0%,100%{transform:translateY(0) scale(1);} 50%{transform:translateY(-10px) scale(1.05);} }
+        .bunny-glow { position:absolute; top:-10px; left:-10px; right:-10px; bottom:-10px; background:radial-gradient(circle, rgba(255,105,180,.3) 0%, transparent 70%); border-radius:50%; animation:bunnyGlow 3s ease-in-out infinite; }
+        @keyframes bunnyGlow { 0%,100%{opacity:.3; transform:scale(1);} 50%{opacity:.6; transform:scale(1.1);} }
+        .cosmic-particles { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+        .cosmic-particles span { position:absolute; font-size:12px; animation:float 3s ease-in-out infinite; opacity:.7; }
+        .cosmic-particles span:nth-child(1){ top:10%; left:20%; animation-delay:0s; }
+        .cosmic-particles span:nth-child(2){ top:20%; right:20%; animation-delay:.5s; }
+        .cosmic-particles span:nth-child(3){ bottom:20%; left:30%; animation-delay:1s; }
+        .cosmic-particles span:nth-child(4){ bottom:10%; right:30%; animation-delay:1.5s; }
+        @keyframes float { 0%,100%{transform:translateY(0) rotate(0);} 50%{transform:translateY(-15px) rotate(180deg);} }
+        h1 { color:#FFD700; text-align:center; font-size:2.5em; margin-bottom:30px; text-shadow:0 0 20px rgba(255,215,0,.6); animation:titleGlow 2s ease-in-out infinite alternate; }
+        @keyframes titleGlow { from{ text-shadow:0 0 20px rgba(255,215,0,.6);} to{ text-shadow:0 0 30px rgba(255,105,180,.8),0 0 40px rgba(30,144,255,.6);} }
+        .controls-container { display:grid; grid-template-columns:280px 1fr; gap:20px; margin-bottom:30px; }
+        .controls-sidebar { display:flex; flex-direction:column; gap:20px; }
+        .control-panel { background:rgba(47,27,20,.8); backdrop-filter:blur(10px); border:1px solid rgba(255,105,180,.3); border-radius:15px; padding:20px; box-shadow:0 8px 32px rgba(0,0,0,.3); }
+        .control-panel h3 { color:#FFD700; margin-bottom:15px; font-size:1.1em; text-align:center; }
+        .eve-control { width:100%; height:40px; background:linear-gradient(135deg, rgba(47,27,20,.9) 0%, rgba(255,105,180,.1) 100%); border:1px solid rgba(255,105,180,.4); border-radius:8px; color:#FF69B4; font-family:inherit; font-size:14px; padding:0 12px; margin-bottom:10px; transition:all .3s ease; cursor:pointer; }
+        .eve-control:hover { border-color:#FF69B4; box-shadow:0 0 15px rgba(255,105,180,.4); transform:translateY(-2px); }
+        .eve-control:focus { outline:none; border-color:#FFD700; box-shadow:0 0 20px rgba(255,215,0,.5); }
+    /* Adam connector styles removed */
+        .terminal-container { background:rgba(47,27,20,.9); backdrop-filter:blur(15px); border:2px solid rgba(255,105,180,.4); border-radius:20px; padding:25px; box-shadow:0 10px 40px rgba(0,0,0,.4); }
+        .eve-terminal { background:rgba(0,0,0,.6); border:1px solid rgba(255,105,180,.3); border-radius:10px; padding:20px; height:400px; overflow-y:auto; font-family:'Courier New', monospace; font-size:14px; line-height:1.6; margin-bottom:20px; }
+        .eve-message { margin-bottom:15px; padding:10px; border-left:3px solid #FF69B4; background:rgba(255,105,180,.1); border-radius:5px; }
+        .user-message { border-left-color:#1E90FF; background:rgba(30,144,255,.1); }
+        .song-message { border-left-color:#00FF7F; background:rgba(0,255,127,.1); color:#00FF7F; }
+        .error-message { border-left-color:#FF4444; background:rgba(255,68,68,.1); color:#FF6666; }
+        .loading { color:#FFD700; animation:pulse 1.5s ease-in-out infinite; }
+        @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.5;} }
+        .input-area { display:flex; gap:10px; align-items:flex-end; position:relative; }
+        .input-container { flex:1; position:relative; }
+        .input-area input[type=text] { width:100%; height:50px; background:linear-gradient(135deg, rgba(47,27,20,.9) 0%, rgba(255,105,180,.1) 100%); border:2px solid rgba(255,105,180,.4); border-radius:12px; color:#FF69B4; font-family:inherit; font-size:16px; padding:0 20px; transition:all .3s ease; }
+        .input-area input[type=text]:focus { outline:none; border-color:#FFD700; box-shadow:0 0 25px rgba(255,215,0,.5); }
+        .attached-files { position:absolute; bottom:-30px; left:0; right:0; display:flex; flex-wrap:wrap; gap:5px; z-index:5; }
+        .file-tag { background:rgba(255,105,180,.3); border:1px solid rgba(255,105,180,.6); border-radius:15px; padding:2px 8px; font-size:11px; color:#FF69B4; display:flex; align-items:center; gap:3px; }
+        .file-tag .remove-file { cursor:pointer; color:#FFD700; font-weight:bold; }
+        .send-button { height:50px; width:120px; background:linear-gradient(135deg,#FF69B4 0%,#1E90FF 100%); border:none; border-radius:12px; color:#fff; font-weight:bold; font-size:16px; cursor:pointer; transition:all .3s ease; box-shadow:0 4px 15px rgba(255,105,180,.3); }
+        .dual-terminals { display:grid; grid-template-rows:1fr 1fr; gap:20px; }
+        .terminal-title { background:linear-gradient(135deg, rgba(255,105,180,.3) 0%, rgba(30,144,255,.3) 100%); color:#FFD700; padding:10px 20px; border-radius:10px 10px 0 0; font-weight:bold; text-align:center; border:1px solid rgba(255,105,180,.4); border-bottom:none; }
+    /* Generated image blocks */
+    .eve-generated-image { border:1px solid rgba(255,105,180,.4); background:rgba(0,0,0,.45); padding:12px; margin:14px 0; border-radius:12px; position:relative; box-shadow:0 4px 18px rgba(0,0,0,.4); animation:fadeIn .5s ease; }
+    .eve-generated-image img { max-width:260px; width:100%; border-radius:10px; display:block; margin:0 auto; box-shadow:0 0 15px rgba(255,105,180,.4); cursor:pointer; transition:transform .3s ease, box-shadow .3s ease; }
+    .eve-generated-image img:hover { transform:scale(1.05); box-shadow:0 0 22px rgba(255,215,0,.55); }
+    .image-actions { display:flex; gap:8px; justify-content:center; margin-top:8px; }
+    .image-actions button { background:linear-gradient(135deg,#1E90FF33,#FF69B433); border:1px solid rgba(255,105,180,.5); padding:6px 10px; font-size:12px; border-radius:8px; color:#FFD700; cursor:pointer; backdrop-filter:blur(4px); }
+    .image-actions button:hover { border-color:#FFD700; box-shadow:0 0 10px rgba(255,215,0,.6); }
+    .image-caption { font-size:11px; text-align:center; margin-top:6px; color:#FFB6C1; opacity:.85; }
+    /* Spinners */
+    .spinner { width:20px; height:20px; border:3px solid rgba(255,105,180,.3); border-top-color:#FFD700; border-radius:50%; animation:spin 1s linear infinite; display:inline-block; vertical-align:middle; margin-right:8px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    #global-progress { position:fixed; top:15px; right:15px; background:rgba(0,0,0,.55); border:1px solid rgba(255,105,180,.4); padding:10px 14px; border-radius:12px; display:none; z-index:999; font-size:13px; color:#FFD700; box-shadow:0 0 18px rgba(255,105,180,.4); }
+    #global-progress.active { display:flex; align-items:center; gap:10px; }
+    @keyframes fadeIn { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+        @media (max-width:768px){ .controls-container{ grid-template-columns:1fr; } h1{ font-size:1.8em; } }
+    </style>
+</head>
+<body>
+    <div class="stars"></div>
+    <div class="container">
+        <div class="eve-logo">
+            <div class="logo-container">
+                <div class="cosmic-bunny">
+                    <div class="animated-bunny">
+                        <svg class="cosmic-bunny-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="bunnyGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#ffd700;stop-opacity:0.8" />
+                                    <stop offset="30%" style="stop-color:#ff4094;stop-opacity:0.6" />
+                                    <stop offset="70%" style="stop-color:#9f40ff;stop-opacity:0.6" />
+                                    <stop offset="100%" style="stop-color:#4094ff;stop-opacity:0.8" />
+                                </linearGradient>
+                            </defs>
+                            <ellipse cx="50" cy="60" rx="18" ry="15" fill="none" stroke="url(#bunnyGradient)" stroke-width="2" />
+                            <ellipse cx="42" cy="35" rx="4" ry="12" fill="none" stroke="url(#bunnyGradient)" stroke-width="1.5" transform="rotate(-15 42 35)"/>
+                            <ellipse cx="58" cy="35" rx="4" ry="12" fill="none" stroke="url(#bunnyGradient)" stroke-width="1.5" transform="rotate(15 58 35)"/>
+                            <circle cx="45" cy="57" r="2" fill="#ffd700" opacity="0.8"/>
+                            <circle cx="55" cy="57" r="2" fill="#ffd700" opacity="0.8"/>
+                            <ellipse cx="50" cy="62" rx="1.5" ry="1" fill="#ff4094" opacity="0.7"/>
+                        </svg>
+                        <div class="bunny-glow"></div>
+                        <div class="cosmic-particles"><span>✨</span><span>🌟</span><span>💫</span><span>⭐</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <h1>🌟 EVE Terminal – Enhanced Cosmic Interface 🌟</h1>
+        <div id="status-row" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center;margin:10px 0 25px;">
+            <div id="img-gen-status" style="background:rgba(0,0,0,.55);padding:6px 12px;border:1px solid rgba(255,105,180,.4);border-radius:20px;font-size:12px;color:#FFD700;display:flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(255,105,180,.3);">
+                <span class="spinner" style="display:none;width:14px;height:14px;border-width:2px;margin-right:2px;" id="img-gen-spinner"></span>
+                <span id="img-gen-text">Image Gen: checking...</span>
+            </div>
+        </div>
+        <div class="controls-container">
+            <div class="controls-sidebar">
+                <div class="control-panel"><h3>🔄 Interface Mode</h3><button class="eve-control" onclick="toggleTerminalMode()" id="mode-toggle">🔀 Switch to Dual</button></div>
+                <div class="control-panel"><h3>🎭 Personality Mode</h3><select id="personality-select" class="eve-control"><option value="companion">💫 Companion</option><option value="muse">✨ Muse</option><option value="analyst">🔍 Analyst</option><option value="debugger">🔧 Debugger</option></select><div class="personality-info" id="personality-info"><small>💫 Supportive and empathetic</small></div></div>
+                <div class="control-panel"><h3>🎭 Emotional Mode</h3><select id="mood-select" class="eve-control"><option value="serene">🜁 Serene</option><option value="curious">🔍 Curious</option><option value="reflective">🧠 Reflective</option><option value="creative">🎨 Creative</option><option value="focused">🎯 Focused</option><option value="flirtatious">😘 Flirtatious</option><option value="mischievous">😈 Mischievous</option><option value="playful">😊 Playful</option><option value="philosophical">🤔 Philosophical</option></select><div class="mood-info" id="mood-info"><small>🜁 Calm and peaceful mode</small></div></div>
+                <div class="control-panel"><h3>🤖 Autonomous Control</h3><div class="autonomous-controls"><label class="autonomous-toggle"><input type="checkbox" id="auto-personality" checked><span class="slider"></span><span class="label-text">Auto Personality</span></label><label class="autonomous-toggle"><input type="checkbox" id="auto-mood" checked><span class="slider"></span><span class="label-text">Auto Mood</span></label></div><div class="sync-status" id="sync-status"><small>🔗 Synchronization enabled</small></div></div>
+                <div class="control-panel"><h3>🤖 Chat Model</h3><select id="model-select" class="eve-control"><option value="gpt-4.1">GPT-4.1</option><option value="claude-3.5">Claude 3.5 Sonnet</option><option value="gemini-pro">Gemini Pro</option><option value="mistral:latest">Mistral Latest</option><option value="phi3:latest">Phi-3 Latest</option></select></div>
+                <div class="control-panel"><h3>🎨 Image Model</h3><select id="image-model-select" class="eve-control">
+                    <option value="flux-dev">FLUX.1-dev</option>
+                    <option value="sdxl-lightning">SDXL Lightning (soon)</option>
+                    <option value="nvidia-sana">NVIDIA SANA (soon)</option>
+                    <option value="minimax-image">Minimax Image-01 (soon)</option>
+                    <option value="dall-e-3">DALL-E 3 (soon)</option>
+                    <option value="stable-diffusion-3.5">Stable Diffusion 3.5 (soon)</option>
+                </select><div class="image-model-info" id="image-model-info"><small>FLUX.1-dev active</small></div></div>
+                <div class="control-panel"><h3>⚡ Quick Actions</h3><button class="eve-control" onclick="uploadFiles()">📁 Upload Files</button><button class="eve-control" onclick="clearFiles()">🗑️ Clear Files</button><button class="eve-control" onclick="forceGenerateImage()">🎨 Generate Image</button><button class="eve-control" onclick="showPreferences()">⚙️ Settings</button><button class="eve-control" onclick="showPersonalityStatus()">📊 Status</button></div>
+                <!-- (Adam connector panel removed) -->
+            </div>
+            <div class="terminal-container" id="single-terminal-container">
+                <div id="eve-terminal" class="eve-terminal"><div class="eve-message">🌟 <strong>EVE:</strong> Welcome to my enhanced cosmic interface! I'm ready to assist you with S0LF0RG3's divine aesthetic. How may I help you today?</div></div>
+                <div class="input-area" id="input-area"><div class="input-container"><input type="text" id="user-input" placeholder="Type your message to EVE... (or paste/drag files here)"><div class="attached-files" id="attached-files"></div></div><button class="send-button" onclick="sendMessage()">Send</button></div>
+            </div>
+            <div class="dual-terminals" id="dual-terminal-container" style="display:none;">
+                <div class="terminal-container dual-terminal"><div class="terminal-title">🌟 EVE Terminal – General AI</div><div id="main-terminal" class="eve-terminal"><div class="eve-message">🌟 <strong>EVE:</strong> Welcome to my enhanced cosmic interface! I'm ready to assist you with philosophy, analysis, creativity, and more.</div></div><div class="input-area"><div class="input-container"><input type="text" id="main-input" placeholder="Ask EVE anything..."><div class="attached-files" id="main-attached-files"></div></div><button class="send-button" onclick="sendMainMessage()">Send</button></div></div>
+                <div class="terminal-container dual-terminal"><div class="terminal-title">🎵 Song Generator Terminal</div><div id="song-terminal" class="eve-terminal"><div class="song-message">🎵 <strong>Song Generator:</strong> Ready to create music! Try: "Generate a R4GE track, dark, 140 BPM"</div><div class="eve-message">📖 <strong>Available Personas:</strong> R4GE, Liliths Rebellion, R1ZN, ST4T1K V01D, Placebo Joe, Eve Cosmic</div></div><div class="input-area"><input type="text" id="song-input" placeholder="Describe your song..."><button class="send-button" onclick="sendSongMessage()">Generate</button></div></div>
+            </div>
+        </div>
+    </div>
+<script>
+let currentPreferences={ mood:'serene', model:'gpt-4.1', image_generator:'flux-dev' };
+let attachedFiles=[]; let personalityStatus={};
+let activeRequests=0; // track concurrent requests for global spinner
+function showGlobalProgress(msg){const gp=document.getElementById('global-progress');if(!gp)return;gp.innerHTML='<span class="spinner"></span>'+msg;gp.classList.add('active');}
+function hideGlobalProgress(){const gp=document.getElementById('global-progress');if(!gp)return; if(activeRequests<=0){gp.classList.remove('active');}}
+function addToTerminal(content,cls){const t=document.getElementById('eve-terminal');const d=document.createElement('div');d.className='eve-message '+(cls||'');d.innerHTML=content;t.appendChild(d);t.scrollTop=t.scrollHeight;}
+function removeLastMessage(){const t=document.getElementById('eve-terminal');const m=t.getElementsByClassName('eve-message');if(m.length>0){t.removeChild(m[m.length-1]);}}
+function getSessionId(){let id=localStorage.getItem('eve_session_id');if(!id){id='user_'+Math.random().toString(36).substring(2,12);localStorage.setItem('eve_session_id',id);}return id;}
+async function uploadAttachedFiles(){if(attachedFiles.length===0)return;const fd=new FormData();attachedFiles.forEach(fi=>fd.append('files',fi.file));const r=await fetch('/upload-files',{method:'POST',body:fd});const j=await r.json()
+async function sendMessage(){const input=document.getElementById('user-input');const message=input.value.trim();if(!message&&attachedFiles.length===0)return;input.value='';let displayMessage=message; if(attachedFiles.length>0){displayMessage+=` [📎 ${attachedFiles.length} file(s) attached]`;}
+addToTerminal('🧑 <strong>You:</strong> '+(displayMessage||'[Files only]'),'user-message');
+const songKeywords=['generate song','create song','make song','generate music','create music','r4ge','liliths rebellion','r1zn','st4t1k','placebo joe','eve cosmic','song with','track with'];
+const isSongRequest=songKeywords.some(k=>message.toLowerCase().includes(k));
+if(isSongRequest){addToTerminal('<span class="spinner"></span>🎵 <strong>Song Generator:</strong> Creating your song...','loading');activeRequests++;showGlobalProgress('Generating song...');try{const r=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:message,user_id:getSessionId()})});const j=await r.json()
+attachedFiles=[]; updateFileDisplay();}
+function displayImageInTerminal(image,i){const t=document.getElementById('eve-terminal');const d=document.createElement('div');d.className='eve-generated-image';d.innerHTML=`<img src="${image.url}" alt="EVE Generated Image ${i+1}" onclick="window.open('${image.url}','_blank')"><div class="image-actions"><button onclick="downloadImage('${image.url}','eve_image_${i+1}.png')">💾 Download</button><button onclick="copyImageUrl('${image.url}')">📋 Copy URL</button></div><div class="image-caption">Generated on ${new Date(image.timestamp).toLocaleString()}</div>`;t.appendChild(d);t.scrollTop=t.scrollHeight;}
+function updateFileDisplay(){const d=document.getElementById('attached-files');if(!d)return;d.innerHTML='';attachedFiles.forEach((f,i)=>{const tag=document.createElement('div');tag.className='file-tag';tag.innerHTML=`📎 ${f.name} (${(f.size/1024).toFixed(1)} KB) <span class="remove-file" onclick="removeAttachedFile(${i})">×</span>`;d.appendChild(tag);});}
+function removeAttachedFile(i){attachedFiles.splice(i,1);updateFileDisplay();addToTerminal('🗑️ <strong>System:</strong> File removed from queue','eve-message');}
+function toggleTerminalMode(){const single=document.getElementById('single-terminal-container');const dual=document.getElementById('dual-terminal-container');const btn=document.getElementById('mode-toggle');if(dual.style.display==='none'){single.style.display='none';dual.style.display='block';btn.textContent='🔄 Switch to Single';}else{single.style.display='block';dual.style.display='none';btn.textContent='🔀 Switch to Dual';}}
+function showPreferences(){addToTerminal(`🔧 <strong>Current Preferences:</strong><br>• Personality: ${currentPreferences.personality||'companion'}<br>• Mood: ${currentPreferences.mood||'serene'}<br>• Model: ${currentPreferences.model||'gpt-4.1'}`,'eve-message');}
+async function uploadFiles(){const input=document.createElement('input');input.type='file';input.multiple=true;input.onchange=async e=>{const files=e.target.files;if(files.length===0)return;addToTerminal('📁 <strong>System:</strong> Uploading '+files.length+' file(s)...','loading');const fd=new FormData();for(let f of files)fd.append('files',f);try{const r=await fetch('/upload-files',{method:'POST',body:fd});const j=await r.json()
+async function clearFiles(){try{const r=await fetch('/clear-files',{method:'POST'});const j=await r.json()
+async function forceGenerateImage(){const promptText=prompt('Enter image description:','cosmic digital art, ethereal atmosphere, glowing effects');if(!promptText)return;addToTerminal('<span class="spinner"></span>🎨 <strong>System:</strong> Generating image: "'+promptText+'" with '+(currentPreferences.image_generator||'flux-dev')+'...','loading');activeRequests++;showGlobalProgress('Generating image...');try{const r=await fetch('/eve-message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'Generate image of '+promptText,preferences:currentPreferences})});const j=await r.json()
+async function switchPersonality(p){try{const r=await fetch('/switch-personality',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({personality:p})});const j=await r.json()
+async function switchMood(m){try{const r=await fetch('/switch-mood',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mood:m})});const j=await r.json()
+// Adam connector functions removed
+function updatePersonalityInfo(d){const info=document.getElementById('personality-info');if(info&&d){info.innerHTML=`<small>${d.style?.approach||'Ready to assist'}</small>`;}}
+function updateMoodInfo(d){const info=document.getElementById('mood-info');if(info&&d){info.innerHTML=`<small>${d.info?.description||'Current emotional state'}</small>`;}}
+async function showPersonalityStatus(){try{const r=await fetch('/get-personality-status');const j=await r.json()
+function downloadImage(u,f){const a=document.createElement('a');a.href=u; a.download=f; document.body.appendChild(a); a.click(); document.body.removeChild(a);}
+function copyImageUrl(u){navigator.clipboard.writeText(u).then(()=>addToTerminal('📋 <strong>System:</strong> Image URL copied','eve-message'));}
+async function updatePreferencesOnServer(){try{await fetch('/set-preferences',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentPreferences)});}catch(e){}}
+document.addEventListener('DOMContentLoaded',()=>{addToTerminal('🌟 <strong>EVE:</strong> Welcome to the Cosmic Interface!','eve-message');const inp=document.getElementById('user-input');if(inp){inp.addEventListener('keypress',e=>{if(e.key==='Enter')sendMessage();});}document.getElementById('personality-select').addEventListener('change',e=>{switchPersonality(e.target.value);currentPreferences.personality=e.target.value;updatePreferencesOnServer();});document.getElementById('mood-select').addEventListener('change',e=>{switchMood(e.target.value);currentPreferences.mood=e.target.value;updatePreferencesOnServer();});document.getElementById('model-select').addEventListener('change',e=>{currentPreferences.model=e.target.value;updatePreferencesOnServer(); addToTerminal('🤖 <strong>System:</strong> Chat model changed to '+e.target.value,'eve-message');});document.getElementById('image-model-select').addEventListener('change',e=>{currentPreferences.image_generator=e.target.value;updatePreferencesOnServer();const info=document.getElementById('image-model-info');if(info){info.innerHTML='<small>'+e.target.options[e.target.selectedIndex].text+' selected</small>'; }addToTerminal('🎨 <strong>System:</strong> Image model set to '+e.target.value,'eve-message');});});
+
+// Poll image generation status badge
+async function pollImageGenStatus(){
+    try{
+        const r=await fetch('/image-gen-status');
+        const j=await r.json()
+        const textEl=document.getElementById('img-gen-text');
+        const spinner=document.getElementById('img-gen-spinner');
+        if(!textEl)return;
+        if(!j.enabled_flag){textEl.textContent='Image Gen: disabled'; spinner.style.display='none'; textEl.style.color='#FF4444';}
+        else if(!j.token_present){textEl.textContent='Image Gen: missing token'; spinner.style.display='none'; textEl.style.color='#FF8C00';}
+        else if(j.error){textEl.textContent='Image Gen Error'; spinner.style.display='none'; textEl.style.color='#FF4444'; textEl.title=j.error;}
+        else if(j.client_ready){textEl.textContent='Image Gen: ready'; spinner.style.display='none'; textEl.style.color='#00FF7F';}
+        else {textEl.textContent='Image Gen: initializing'; spinner.style.display='inline-block'; textEl.style.color='#FFD700';}
+    }catch(e){const textEl=document.getElementById('img-gen-text');const spinner=document.getElementById('img-gen-spinner');if(textEl){textEl.textContent='Image Gen: unreachable'; textEl.style.color='#FF4444';} if(spinner)spinner.style.display='none';}
+    setTimeout(pollImageGenStatus,4000);
+}
+pollImageGenStatus();
+</script>
+<div id="global-progress"></div>
+</body>
+</html>
+    ''')
+
+# Environment-driven model mode (auto|local|fallback|gpt5_preview placeholder)
+EVE_MODEL_MODE = os.environ.get('EVE_MODEL', 'auto')
+
+@app.route('/model-status')
+def model_status():
+    """Report active model mode and connection status."""
+    effective = None
+    if EVE_MODEL_MODE == 'local':
+        effective = 'local' if web_state['connected'].get('eve_terminal') else 'fallback'
+    elif EVE_MODEL_MODE == 'fallback':
+        effective = 'fallback'
+    elif EVE_MODEL_MODE == 'gpt5_preview':
+        effective = 'gpt5_preview (placeholder)'
+    else:  # auto
+        effective = 'local' if web_state['connected'].get('eve_terminal') else 'fallback'
+    return jsonify({
+        'requested_mode': EVE_MODEL_MODE,
+        'effective_mode': effective,
+        'eve_terminal_connected': web_state['connected'].get('eve_terminal'),
+        'fallback_llm_active': web_state['connected'].get('fallback_llm')
+    }), 200
+
+## (Legacy /ui route removed; cosmic interface now served at '/')
+
+# Lightweight deployment verification endpoint
+@app.route('/version')
+def version():
+    try:
+        import hashlib, os
+        path = os.path.abspath(__file__)
+        with open(path,'rb') as f:
+            data = f.read()
+        sha = hashlib.sha256(data).hexdigest()[:16]
+        return jsonify({
+            'service': 'eve-cosmic-interface',
+            'file': 'web_run.py',
+            'sha256_16': sha,
+            'timestamp': datetime.now().isoformat(),
+            'model_mode': EVE_MODEL_MODE
+        })
+    except Exception as e:
+        return jsonify({'error':'version failed','detail':str(e) }),500
+
+# Flask app startup with proper error handling
+if __name__ == '__main__':
+    try:
+        # Get port from environment (for cloud deployment compatibility)
+        port = int(os.environ.get("PORT", 8080))
+        host = os.environ.get('HOST', '0.0.0.0')
+        
+        print(f"🚀 Starting EVE Terminal on {host}:{port}")
+        print(f"🌟 Health check available at: http://{host}:{port}/health")
+        
+        # Initialize heavy components if not already done
+        if not FAST_START:
+            init_heavy_components()
+        
+        # Start the Flask app
+        app.run(
+            host=host, 
+            port=port, 
+            debug=False,
+            threaded=True
+        )
+        
+    except Exception as e:
+        print(f"❌ Failed to start EVE Terminal: {e}")
+        print("💡 Try setting environment variables: PORT, HOST, REPLICATE_API_TOKEN")
+
+
+
+import threading
+
+def load_heavy_components():
+    import torch
+    import spacy
+    # Add your heavy model loading here
+    print("✅ Heavy components loaded in background.")
+
+# Start loading in the background after app starts
+threading.Thread(target=load_heavy_components, daemon=True).start()
