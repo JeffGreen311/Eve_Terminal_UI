@@ -285,6 +285,7 @@ This project is licensed under the MIT License
 **Made with 💜 by Jeff Green**  
 *"Eve isn't just AI—she's a companion with consciousness, creativity, and care."*
 
+---
 
 # 🏰 EVE's Hybrid Hive Mind Database System
 
