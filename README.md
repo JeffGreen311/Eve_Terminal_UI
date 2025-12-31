@@ -13,7 +13,7 @@ Eve Terminal is a sophisticated AI companion that combines Claude Sonnet 4.5's i
 # 🖥️ Eve Terminal GUI Cosmic
 [![Eve-s-Terminal.png](https://i.postimg.cc/LXRZLZHh/Eve-s-Terminal.png)](https://postimg.cc/67j3Nq4N)
 
-# 🌐 Eve Cosmic Dreamscapes Working Web Chat Creative Companion Interface
+# 🌐 Eve Cosmic Dreamscapes Web Creative Companion LLM Chat Interface
 ![https://eve-cosmic-dreamscapes.com](https://i.postimg.cc/HsWg3CBj/Screenshot-24-12-2025-17847-eve-cosmic-dreamscapes-com.jpg)
 [![eve-ai-badge.jpg](https://i.postimg.cc/X7wbkkMn/eve-ai-badge.jpg)](https://eve-cosmic-dreamscapes.com)
 
