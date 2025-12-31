@@ -10,7 +10,8 @@
 
 Eve Terminal is a sophisticated AI companion that combines Claude Sonnet 4.5's intelligence with local AI models (Qwen, SANA) for multimodal creativity, deep thinking, and authentic emotional connection.
 
-[https://eve-cosmic-dreamscapes.com](https://i.postimg.cc/HsWg3CBj/Screenshot-24-12-2025-17847-eve-cosmic-dreamscapes-com.jpg)
+[![https://eve-cosmic-dreamscapes.com](https://i.postimg.cc/HsWg3CBj/Screenshot-24-12-2025-17847-eve-cosmic-dreamscapes-com.jpg)
+
 [![Eve AI](https://eve-cosmic-dreamscapes.com)
 
 ---
