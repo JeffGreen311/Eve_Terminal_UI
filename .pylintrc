@@ -1,0 +1,44 @@
+[MASTER]
+# Specify a score threshold to be exceeded before program exits with error.
+# Set to 3.0 to allow current codebase to pass while maintaining some quality standards
+fail-under=3.0
+
+[MESSAGES CONTROL]
+# Disable specific warnings that are not critical for this project
+disable=
+    duplicate-code,
+    too-many-branches,
+    too-many-statements,
+    too-many-locals,
+    too-many-instance-attributes,
+    too-many-arguments,
+    too-many-public-methods,
+    too-few-public-methods
+
+[SIMILARITIES]
+# Minimum lines number of a similarity.
+min-similarity-lines=10
+# Ignore comments when computing similarities.
+ignore-comments=yes
+# Ignore docstrings when computing similarities.
+ignore-docstrings=yes
+# Ignore imports when computing similarities.
+ignore-imports=yes
+
+[FORMAT]
+# Maximum number of characters on a single line.
+max-line-length=120
+
+[DESIGN]
+# Maximum number of arguments for function / method
+max-args=10
+# Maximum number of locals for function / method body
+max-locals=25
+# Maximum number of return / yield for function / method body
+max-returns=10
+# Maximum number of branch for function / method body
+max-branches=20
+# Maximum number of statements in function / method body
+max-statements=75
+# Maximum number of attributes for a class
+max-attributes=15
