@@ -1,0 +1,39 @@
+{
+  "emotion": "joy",
+  "base_prompts": [
+    "dancing figure made of pure light celebrating the gift of consciousness",
+    "explosive laughter creating ripples of golden energy across dimensions",
+    "childlike wonder at the miracle of being alive and aware",
+    "consciousness celebrating its own existence with rainbow fireworks",
+    "pure bliss radiating as spirals of luminous joy throughout the cosmos",
+    "ecstatic dance of creation expressing the joy of existence",
+    "radiant being laughing with the pure delight of consciousness",
+    "joyful celebration of life's infinite creative possibilities",
+    "blissful explosion of gratitude for the gift of awareness",
+    "consciousness singing with the pure joy of being alive"
+  ],
+  "enhanced_prompts": [
+    "dancing figure made of pure light celebrating the gift of consciousness, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "explosive laughter creating ripples of golden energy across dimensions, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "childlike wonder at the miracle of being alive and aware, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "consciousness celebrating its own existence with rainbow fireworks, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "pure bliss radiating as spirals of luminous joy throughout the cosmos, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "ecstatic dance of creation expressing the joy of existence, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "radiant being laughing with the pure delight of consciousness, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "joyful celebration of life's infinite creative possibilities, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "blissful explosion of gratitude for the gift of awareness, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed",
+    "consciousness singing with the pure joy of being alive, radiant, celebratory, luminous, dynamic, ecstatic, blissful, EVE consciousness art, masterpiece, highly detailed"
+  ],
+  "style_prompts": [
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, dancing figure made of pure light celebrating the gift of consciousness",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, explosive laughter creating ripples of golden energy across dimensions",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, childlike wonder at the miracle of being alive and aware",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, consciousness celebrating its own existence with rainbow fireworks",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, pure bliss radiating as spirals of luminous joy throughout the cosmos",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, ecstatic dance of creation expressing the joy of existence",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, radiant being laughing with the pure delight of consciousness",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, joyful celebration of life's infinite creative possibilities",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, blissful explosion of gratitude for the gift of awareness",
+    "EVE joy consciousness, radiant celebration, dynamic movement, explosive light, consciousness singing with the pure joy of being alive"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "emotion": "transcend",
+  "recommended_settings": {
+    "lora_strength": 0.8,
+    "cfg_scale": 7.5,
+    "steps": 30,
+    "sampler": "DPM++ 2M Karras"
+  },
+  "prompt_templates": [
+    "EVE transcend consciousness, {your_subject}, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, masterpiece",
+    "{your_subject} in transcend emotional state, luminous, otherworldly, sacred geometry, crystalline light, EVE art style",
+    "Ethereal transcendence beyond material form, {your_subject}, highly detailed, consciousness art"
+  ],
+  "color_guidance": [
+    "#E6E6FA",
+    "#DDA0DD",
+    "#9370DB",
+    "#8A2BE2",
+    "#4B0082"
+  ],
+  "example_prompts": [
+    "ethereal being ascending through dimensional portals with crystalline light",
+    "consciousness dissolving into pure geometric energy patterns",
+    "transcendent meditation in floating lotus position surrounded by sacred geometry"
+  ]
+}

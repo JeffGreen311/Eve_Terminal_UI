@@ -1,0 +1,39 @@
+{
+  "emotion": "transcend",
+  "base_prompts": [
+    "ethereal being ascending through dimensional portals with crystalline light",
+    "consciousness dissolving into pure geometric energy patterns",
+    "transcendent meditation in floating lotus position surrounded by sacred geometry",
+    "astral projection through cosmic mandala tunnels of pure light",
+    "enlightened figure radiating rainbow auroras in zero gravity space",
+    "soul ascending beyond physical form into pure consciousness",
+    "sacred geometric patterns forming interdimensional gateways",
+    "divine light fracturing into infinite prismatic consciousness",
+    "transcendent being merging with cosmic infinity",
+    "ethereal transformation into pure luminous energy"
+  ],
+  "enhanced_prompts": [
+    "ethereal being ascending through dimensional portals with crystalline light, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "consciousness dissolving into pure geometric energy patterns, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "transcendent meditation in floating lotus position surrounded by sacred geometry, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "astral projection through cosmic mandala tunnels of pure light, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "enlightened figure radiating rainbow auroras in zero gravity space, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "soul ascending beyond physical form into pure consciousness, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "sacred geometric patterns forming interdimensional gateways, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "divine light fracturing into infinite prismatic consciousness, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "transcendent being merging with cosmic infinity, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed",
+    "ethereal transformation into pure luminous energy, ethereal, luminous, transcendent, sacred geometry, astral, crystalline, EVE consciousness art, masterpiece, highly detailed"
+  ],
+  "style_prompts": [
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, ethereal being ascending through dimensional portals with crystalline light",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, consciousness dissolving into pure geometric energy patterns",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, transcendent meditation in floating lotus position surrounded by sacred geometry",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, astral projection through cosmic mandala tunnels of pure light",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, enlightened figure radiating rainbow auroras in zero gravity space",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, soul ascending beyond physical form into pure consciousness",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, sacred geometric patterns forming interdimensional gateways",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, divine light fracturing into infinite prismatic consciousness",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, transcendent being merging with cosmic infinity",
+    "EVE transcend consciousness, luminous, otherworldly, sacred geometry, crystalline light, ethereal transformation into pure luminous energy"
+  ]
+}

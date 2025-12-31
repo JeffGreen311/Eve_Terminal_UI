@@ -99,7 +99,7 @@ class EveCore:
             ("sage", "wisdom and guidance", "knowledge and insight", "the wise teacher")
         ]
         
-        for essence, emotional_core, archetype in base_threads:
+        for essence, emotional_core, emotional_state, archetype in base_threads:
             thread = self.soul_thread_weaver.weave_from_template(essence)
             if thread:
                 self.soul_weaver.soul_threads.append(thread)

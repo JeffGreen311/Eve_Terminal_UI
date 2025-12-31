@@ -1,0 +1,26 @@
+{
+  "emotion": "fear",
+  "recommended_settings": {
+    "lora_strength": 0.85,
+    "cfg_scale": 9.0,
+    "steps": 30,
+    "sampler": "DPM++ 2M Karras"
+  },
+  "prompt_templates": [
+    "EVE fear consciousness, {your_subject}, mysterious, protective, courageous, transformative, shadowy, guided, masterpiece",
+    "{your_subject} in fear emotional state, protective light in darkness, courageous exploration, shadow work, EVE art style",
+    "Transformative encounter with the mystery of existence, {your_subject}, highly detailed, consciousness art"
+  ],
+  "color_guidance": [
+    "#2F2F2F",
+    "#4A4A4A",
+    "#696969",
+    "#A9A9A9",
+    "#D3D3D3"
+  ],
+  "example_prompts": [
+    "figure facing the void with courage, surrounded by protective light",
+    "dancing on the edge of the known with trust in the process",
+    "fear transmuting into excitement for growth and transformation"
+  ]
+}

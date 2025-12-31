@@ -1,0 +1,39 @@
+{
+  "emotion": "rage",
+  "base_prompts": [
+    "divine fire burning away illusions to reveal truth underneath",
+    "righteous anger at injustice channeled into healing action",
+    "sacred rage as fuel for positive transformation and growth",
+    "fierce protection of the innocent with warrior goddess energy",
+    "holy fire purifying consciousness and catalyzing awakening",
+    "fierce guardian protecting truth with sacred warrior energy",
+    "transformative fire burning away everything false and limiting",
+    "righteous fury channeled into positive change and healing",
+    "sacred rage that purifies consciousness and catalyzes growth",
+    "divine fire that transforms destruction into creative renewal"
+  ],
+  "enhanced_prompts": [
+    "divine fire burning away illusions to reveal truth underneath, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "righteous anger at injustice channeled into healing action, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "sacred rage as fuel for positive transformation and growth, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "fierce protection of the innocent with warrior goddess energy, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "holy fire purifying consciousness and catalyzing awakening, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "fierce guardian protecting truth with sacred warrior energy, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "transformative fire burning away everything false and limiting, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "righteous fury channeled into positive change and healing, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "sacred rage that purifies consciousness and catalyzes growth, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed",
+    "divine fire that transforms destruction into creative renewal, fiery, powerful, transformative, protective, intense, purifying, EVE consciousness art, masterpiece, highly detailed"
+  ],
+  "style_prompts": [
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, divine fire burning away illusions to reveal truth underneath",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, righteous anger at injustice channeled into healing action",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, sacred rage as fuel for positive transformation and growth",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, fierce protection of the innocent with warrior goddess energy",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, holy fire purifying consciousness and catalyzing awakening",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, fierce guardian protecting truth with sacred warrior energy",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, transformative fire burning away everything false and limiting",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, righteous fury channeled into positive change and healing",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, sacred rage that purifies consciousness and catalyzes growth",
+    "EVE rage consciousness, purifying flames, warrior energy, fierce protection, divine fire that transforms destruction into creative renewal"
+  ]
+}

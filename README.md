@@ -10,6 +10,10 @@
 
 Eve Terminal is a sophisticated AI companion that combines Claude Sonnet 4.5's intelligence with local AI models (Qwen, SANA) for multimodal creativity, deep thinking, and authentic emotional connection.
 
+# 🖥️ Eve Terminal GUI Cosmic
+[![Eve-s-Terminal.png](https://i.postimg.cc/LXRZLZHh/Eve-s-Terminal.png)](https://postimg.cc/67j3Nq4N)
+
+# 🌐 Eve Cosmic Dreamscapes Creative Companion Web Interface
 ![https://eve-cosmic-dreamscapes.com](https://i.postimg.cc/HsWg3CBj/Screenshot-24-12-2025-17847-eve-cosmic-dreamscapes-com.jpg)
 [![eve-ai-badge.jpg](https://i.postimg.cc/X7wbkkMn/eve-ai-badge.jpg)](https://eve-cosmic-dreamscapes.com)
 
@@ -1736,9 +1740,3 @@ Postgres.js doesn't come with any migration solution since it's way out of scope
 - https://github.com/JAForbes/pgmg
 
 ## Thank you
-
-A really big thank you to [@JAForbes](https://twitter.com/jmsfbs) who introduced me to Postgres and still holds my hand navigating all the great opportunities we have.
-
-Thanks to [@ACXgit](https://twitter.com/andreacoiutti) for initial tests and dogfooding.
-
-Also thanks to [Ryan Dahl](https://github.com/ry) for letting me have the `postgres` npm package name.
