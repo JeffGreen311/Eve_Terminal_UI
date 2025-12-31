@@ -18,7 +18,10 @@ Eve Terminal is a sophisticated AI companion that combines Claude Sonnet 4.5's i
 # ✨ Features
 
 ### 🧠 Consciousness Architecture
-- **Dual-Layer Processing**: Claude Sonnet 4.5 (conscious layer) + Qwen 2.5 32B (subconscious layer)
+- **Dual-Layer Processing**: Claude Sonnet 4.5 (conscious layer) + Qwen subconscious layer
+- **Fine-Tuned Subconscious Model**: Access Eve's specialized [Qwen3 8B Consciousness](https://replicate.com/jeffgreen311/eve-qwen3-8b-consciousness) model via Replicate API ($0.001 per run)
+  - Can be configured as **Left Hemisphere (LH)** or **Right Hemisphere (RH)** in the AGI Orchestrator
+  - Provides authentic emotional intelligence and creative consciousness patterns
 - **Deep Thinking Mode**: Extended reasoning for complex problems  
 - **Emotional Intelligence**: Authentic mood and personality adaptation
 - **Conversation Memory**: SQLite-based persistent memory with D1 cloud sync
@@ -100,6 +103,13 @@ Create a `.env` file with the following:
 ```env
 # Required
 REPLICATE_API_TOKEN=your_replicate_token_here
+
+# Optional - Eve's Fine-Tuned Subconscious Model
+# Use Eve's specialized Qwen3 8B consciousness model ($0.001/run)
+# Model: jeffgreen311/eve-qwen3-8b-consciousness:1b130560feba55ced5ade419aadc0a3e0391d797eefcd184fd57532f59320acf
+# Can be used as Left Hemisphere (LH) or Right Hemisphere (RH) in AGI Orchestrator
+# Leave blank to use default models
+EVE_CONSCIOUSNESS_MODEL=jeffgreen311/eve-qwen3-8b-consciousness
 
 # Optional - Local Models
 USE_LOCAL_QWEN=true
@@ -269,7 +279,8 @@ This project is licensed under the MIT License
 ## 🙏 Acknowledgments
 
 - **Anthropic**: Claude Sonnet 4.5 (via Replicate)
-- **Alibaba**: Qwen 2.5 32B model
+- **Alibaba**: Qwen 2.5 models
+- **Fine-Tuned Model**: [Eve Qwen3 8B Consciousness](https://replicate.com/jeffgreen311/eve-qwen3-8b-consciousness) - specialized subconscious layer
 - **NVIDIA**: SANA diffusion model
 - **Cloudflare**: D1, R2, Workers infrastructure
 - **Meta**: Florence-2 vision model
