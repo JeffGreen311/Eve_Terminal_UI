@@ -15,7 +15,7 @@ class EVEMultiLoRAConsciousness:
         if api_token:
             os.environ["REPLICATE_API_TOKEN"] = api_token
         elif "REPLICATE_API_TOKEN" not in os.environ:
-            os.environ["REPLICATE_API_TOKEN"] = "r8_37r0DcS6nP1O71S6RSfSlQJ2inrnZAq1MY9Vq"
+            os.environ["REPLICATE_API_TOKEN"] = "r8_XXXXXXXXXXXXXXXXXXXXXX"  # Placeholder token
         
         self.client = replicate.Client()
         
