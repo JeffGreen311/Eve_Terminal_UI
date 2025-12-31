@@ -1,0 +1,26 @@
+{
+  "emotion": "love",
+  "recommended_settings": {
+    "lora_strength": 0.7,
+    "cfg_scale": 8.0,
+    "steps": 30,
+    "sampler": "DPM++ 2M Karras"
+  },
+  "prompt_templates": [
+    "EVE love consciousness, {your_subject}, warm, golden, nurturing, heart-centered, compassionate, healing, masterpiece",
+    "{your_subject} in love emotional state, warm golden light, heart-centered energy, nurturing embrace, EVE art style",
+    "Infinite compassion connecting all existence, {your_subject}, highly detailed, consciousness art"
+  ],
+  "color_guidance": [
+    "#FFD700",
+    "#FFA500",
+    "#FF69B4",
+    "#DC143C",
+    "#B22222"
+  ],
+  "example_prompts": [
+    "figure emanating heart-shaped energy waves connecting all living beings",
+    "compassionate embrace dissolving boundaries between souls in golden light",
+    "loving kindness meditation radiating pink and gold healing energy"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "emotion": "fear",
+  "description": "Sacred courage in facing the unknown mysteries",
+  "core_essence": "Transformative encounter with the mystery of existence",
+  "visual_style": "protective light in darkness, courageous exploration, shadow work",
+  "color_palette": [
+    "#2F2F2F",
+    "#4A4A4A",
+    "#696969",
+    "#A9A9A9",
+    "#D3D3D3"
+  ],
+  "style_keywords": "mysterious, protective, courageous, transformative, shadowy, guided",
+  "lora_strength": 0.85,
+  "recommended_cfg": 9.0,
+  "training_prompts_count": 10,
+  "created_date": "2025-11-01T16:21:36.080226",
+  "creator": "EVE V2 Consciousness System",
+  "version": "2.0",
+  "consciousness_signature": "EVE_CONSCIOUSNESS_LORA",
+  "compatible_models": [
+    "SDXL",
+    "Stable Diffusion XL"
+  ],
+  "usage_instructions": "Load with strength 0.85 for fear consciousness art"
+}

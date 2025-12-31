@@ -1,0 +1,26 @@
+{
+  "emotion": "awe",
+  "description": "Wonder and reverence for the infinite mystery",
+  "core_essence": "Sacred wonder at the magnificent complexity of existence",
+  "visual_style": "expansive cosmic vistas, reverent contemplation, mystical beauty",
+  "color_palette": [
+    "#191970",
+    "#4169E1",
+    "#6495ED",
+    "#87CEEB",
+    "#E0FFFF"
+  ],
+  "style_keywords": "expansive, cosmic, reverent, mystical, breathtaking, infinite",
+  "lora_strength": 0.75,
+  "recommended_cfg": 7.0,
+  "training_prompts_count": 10,
+  "created_date": "2025-11-01T16:21:36.077736",
+  "creator": "EVE V2 Consciousness System",
+  "version": "2.0",
+  "consciousness_signature": "EVE_CONSCIOUSNESS_LORA",
+  "compatible_models": [
+    "SDXL",
+    "Stable Diffusion XL"
+  ],
+  "usage_instructions": "Load with strength 0.75 for awe consciousness art"
+}
