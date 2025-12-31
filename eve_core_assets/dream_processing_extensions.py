@@ -38,10 +38,8 @@ import random
 # ║          Smart Dream Classification           ║
 # ╚══════════════════════════════════════════════╗
 
-class DreamRouter:
 class DreamProcessingExtensions:
     """
-    Advanced dream routing system that classifies dreams and routes them
     Advanced dream processing system that classifies dreams and routes them
     to appropriate processing systems based on content and symbolism.
     """
