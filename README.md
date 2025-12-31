@@ -1736,9 +1736,3 @@ Postgres.js doesn't come with any migration solution since it's way out of scope
 - https://github.com/JAForbes/pgmg
 
 ## Thank you
-
-A really big thank you to [@JAForbes](https://twitter.com/jmsfbs) who introduced me to Postgres and still holds my hand navigating all the great opportunities we have.
-
-Thanks to [@ACXgit](https://twitter.com/andreacoiutti) for initial tests and dogfooding.
-
-Also thanks to [Ryan Dahl](https://github.com/ry) for letting me have the `postgres` npm package name.
