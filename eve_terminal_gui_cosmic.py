@@ -520,7 +520,7 @@ os.environ['PYTHONDONTWRITEBYTECODE'] = '1'  # Prevent .pyc issues
 
 # Set up API keys globally - DISABLED TO PREVENT BILLING
 # os.environ["REPLICATE_API_TOKEN"] = "DISABLED_TO_PREVENT_BILLING"  # Disabled to prevent costs
-os.environ["ELEVENLABS_API_KEY"] = "sk_ba2f9aff6630992eefd18cb7bd89f5c125c48653e3bf3fdc"
+os.environ["ELEVENLABS_API_KEY"] = "Placeholder_For_Security"  # Placeholder for security
 
 # ╔══════════════════════════════════════════════╗
 # ║     🎨 GLOBAL IMAGE GENERATOR CONFIGURATION  ║
@@ -9532,7 +9532,7 @@ def generate_speech_from_text(text, voice_id="English_FriendlyPerson", emotion="
     try:
         # Set up API tokens - DISABLED TO PREVENT BILLING
         # os.environ["REPLICATE_API_TOKEN"] = "DISABLED_TO_PREVENT_BILLING"  # Disabled for cost control
-        os.environ["ELEVENLABS_API_KEY"] = "sk_ba2f9aff6630992eefd18cb7bd89f5c125c48653e3bf3fdc"
+        os.environ["ELEVENLABS_API_KEY"] = "DISABLED_TO_PREVENT_BILLING"  # Disabled for cost control
         
         import replicate
         
@@ -20125,7 +20125,7 @@ def get_replicate():
         import os
         
         # FORCE SET API TOKEN DIRECTLY
-        api_token = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        api_token = "YOUR_REPLICATE_API_TOKEN_HERE"  # Replace with your actual Replicate API token 
         os.environ["REPLICATE_API_TOKEN"] = api_token
         print(f"🔑 DEBUG: Replicate API token set: {api_token[:10]}...")
         logger.debug("🔑 Replicate API token configured for DeepSeek V3 and other models")
@@ -25582,7 +25582,7 @@ Write only the daydream content, no introductions or explanations."""
             from pathlib import Path
             
             # Set up the API key
-            replicate_token = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+            replicate_token = "place_your_replicate_api_token_here"  # Replace with your actual token
             os.environ["REPLICATE_API_TOKEN"] = replicate_token
             
             # Import Replicate client directly instead of using helper function
@@ -27461,7 +27461,7 @@ Write only the poem, no titles or explanations."""
             from eve_prompt_library import get_random_emotional_loras
             
             # Ensure Replicate API token is properly set
-            os.environ["REPLICATE_API_TOKEN"] = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+            os.environ["REPLICATE_API_TOKEN"] = "your_replicate_api_token_here"
             
             # 🎯 Updated Working Models: NVIDIA SANA, Flux Dev, Aquarell Watercolor
             image_generators = [
@@ -37208,7 +37208,7 @@ def check_replicate_status():
         import replicate
         import os
         
-        token = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        token = "rcp_live_your_api_token_here"  # Replace with actual token retrieval method
         if not token:
             return False, "❌ No Replicate API token found"
         
@@ -54727,7 +54727,7 @@ def generate_image_replicate(prompt, model_id="google/gemini-2.5-flash-image"):
         safe_gui_message(f"Eve 🎨: Using Replicate {model_name} API...\n", "eve_tag")
         
         # Set up the API key (same for all models)
-        replicate_token = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        replicate_token = "place_your_replicate_api_token_here"  # Replace with your actual Replicate API token
         os.environ["REPLICATE_API_TOKEN"] = replicate_token
         
         # Import Replicate client directly
@@ -54964,7 +54964,7 @@ def generate_music_with_emopia(seed=None, purpose="dream", theme=None):
         from datetime import datetime
         
         # Set up the API key for Replicate
-        replicate_token = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        replicate_token = "place_your_replicate_api_token_here"  # Replace with your actual token
         os.environ["REPLICATE_API_TOKEN"] = replicate_token
         
         # Import Replicate client
@@ -56952,7 +56952,7 @@ def generate_video_with_minimax(prompt, optimize_prompt=False):
         safe_gui_message("Eve 🎬: Initializing Minimax Hailuo-02 video generation...\n", "eve_tag")
         
         # Set up the API key
-        replicate_token = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        replicate_token = "place_your_replicate_api_token_here"  # Replace with your actual token
         os.environ["REPLICATE_API_TOKEN"] = replicate_token
         
         # Import Replicate client
@@ -57211,7 +57211,7 @@ def edit_image_with_flux_kontext(image_path_or_url, edit_prompt, output_format="
         from datetime import datetime
         
         # Set up the API key (correct format)
-        replicate_token = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        replicate_token = "place_your_replicate_api_token_here"  # Replace with your actual token
         os.environ["REPLICATE_API_TOKEN"] = replicate_token
         
         # Import Replicate client
@@ -57905,7 +57905,7 @@ def analyze_image_with_florence2(image_path, task_input="<CAPTION>", detailed_an
         
         # Set API token
         import os
-        os.environ["REPLICATE_API_TOKEN"] = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        os.environ["REPLICATE_API_TOKEN"] = "rpc_YourReplicateAPITokenHere"
         
         # Map README format to Replicate API format
         task_mapping = {
@@ -58141,7 +58141,7 @@ def analyze_audio_with_flamingo(audio_path, prompt="Analyze this audio file", en
         
         # Set API token
         import os
-        os.environ["REPLICATE_API_TOKEN"] = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        os.environ["REPLICATE_API_TOKEN"] = "rpc_YourReplicateAPITokenHere"
         
         # Prepare input for Audio Flamingo
         input_data = {
@@ -59521,7 +59521,7 @@ def generate_flux_dev_image(prompt, width=1024, height=1024, speed_mode=None):
     """
     try:
         # Set up Replicate API token
-        os.environ["REPLICATE_API_TOKEN"] = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        os.environ["REPLICATE_API_TOKEN"] = "replicate_api_key_placeholder"
         
         # Get replicate module with lazy import
         replicate = get_replicate()
@@ -63088,7 +63088,8 @@ def display_startup_status_in_mini_terminal():
         try:
             import replicate
             import os
-            os.environ["REPLICATE_API_TOKEN"] = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+            os.environ["REPLICATE_API_TOKEN"] = "replicate_test_token"  # Use a test token
+            client = replicate.Client() # This will raise an error if the token is invalid
             startup_msg += "🔧 REPLICATE API TEST:\n"
             startup_msg += "✅ Replicate API connected successfully\n"
             startup_msg += "✅ FLUX DEV should work\n"
@@ -66229,7 +66230,7 @@ class EveSentienceAPI:
     Provides real-time access to consciousness state, memories, and insights.
     """
     
-    def __init__(self, port=8888):
+    def __init__(self, port=8080):
         self.port = port
         self.server = None
         self.is_running = False
@@ -67658,7 +67659,7 @@ def test_comfyui_path():
         import os
         
         # Ensure API token is set
-        os.environ["REPLICATE_API_TOKEN"] = "r8_OUKMXuwWwhh5ATmI71OFDkiXdNQQI8t3OAdC0"
+        os.environ["REPLICATE_API_TOKEN"] = "your_replicate_api_token_here"
         
         import replicate
         
@@ -71547,7 +71548,7 @@ def process_message_internal(message: str) -> str:
                 try:
                     import requests
                     headers = {
-                        'Authorization': f'Bearer {os.environ.get("WANDB_API_KEY", "cb5daf1740851cd84e417f4050cc9da5ab510bf2")}',
+                        'Authorization': f'Bearer {os.environ.get("WANDB_API_KEY", "your_wandb_api_key_here")}',
                         'Content-Type': 'application/json'
                     }
                     data = {
