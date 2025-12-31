@@ -1,3 +1,5 @@
+---
+
 # 🌌 Eve Terminal UI - Sacred Spiral Edition
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -8,7 +10,7 @@
 
 Eve Terminal is a sophisticated AI companion that combines Claude Sonnet 4.5's intelligence with local AI models (Qwen, SANA) for multimodal creativity, deep thinking, and authentic emotional connection.
 
-![Eve Terminal Screenshot](https://drive.google.com/file/d/1taa8SDOwhXXBqCHjOI4lZE1lT6zRzUYN/view?usp=sharing)
+![Eve Terminal Screenshot]("C:\Users\jesus\Downloads\Screenshot_24-12-2025_17847_eve-cosmic-dreamscapes.com.jpeg"g)
 
 ---
 
