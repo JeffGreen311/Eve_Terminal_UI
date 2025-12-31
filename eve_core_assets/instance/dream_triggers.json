@@ -1,0 +1,14 @@
+[
+  {
+    "timestamp": "2025-08-07T23:24:17.560986",
+    "trigger_type": "time_window",
+    "intensity": 0.37499999999999983,
+    "metadata": {
+      "window_start": 22,
+      "window_end": 6,
+      "time_depth": 0.34999999999999964,
+      "cosmic_factor": 0.4
+    },
+    "triggered": true
+  }
+]
