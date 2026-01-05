@@ -21,7 +21,7 @@ class VectorizeClient:
         Args:
             worker_url: Worker URL (defaults to D1_WORKER_URL env var)
         """
-        self.worker_url = (worker_url or os.getenv("D1_WORKER_URL", "https://eve-d1-api.jeffgreen311.workers.dev")).rstrip("/")
+        self.worker_url = (worker_url or os.getenv("D1_WORKER_URL", "URL")).rstrip("/")
         self.headers = {"Content-Type": "application/json"}
     
     def insert_text(
