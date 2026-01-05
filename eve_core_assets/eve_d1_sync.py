@@ -18,7 +18,7 @@ _d1_client = None
 _legacy_d1_client = None
 
 def get_d1_client():
-    """Lazy-load Session D1 client for session storage (862f2a7d-0a3d-4289-9c26-0de304e9cd2c)"""
+    """Lazy-load Session D1 client for session storage ("DB ID")"""
     global _d1_client
     if _d1_client is None:
         try:
