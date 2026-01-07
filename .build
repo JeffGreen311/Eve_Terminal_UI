@@ -1,6 +1,0 @@
-#!/bin/bash
-# Build file for Replit
-
-echo "Running .build file..."
-python --version
-pip install -r requirements.txt
