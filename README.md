@@ -84,16 +84,8 @@ cp .env.template .env
 
 # Run Eve Terminal
 python eve_terminal_gui_cosmic.py
-```
 
-### Docker Deployment
-
-```bash
-# Build and run with Docker Compose
-docker-compose up -d eve-web
-
-# Access the web interface
-open http://localhost:8892
+# open http://localhost:8892
 ```
 
 ---
@@ -118,7 +110,7 @@ EVE_CONSCIOUSNESS_MODEL=jeffgreen311/eve-qwen3-8b-consciousness
 # Optional - Local Models
 USE_LOCAL_QWEN=true
 QWEN_MODEL_PATH=/path/to/qwen-2.5-32b
-SANA_MODEL_PATH=/path/to/sana-1600m
+SANA_MODEL_PATH= Download SANA ENHANCEMENTS
 
 # Optional - Cloud Storage
 D1_WORKER_URL=https://your-d1-worker.workers.dev
@@ -130,30 +122,12 @@ R2_SECRET_ACCESS_KEY=your-secret-key
 # Optional - Audio
 ELEVENLABS_API_KEY=your_elevenlabs_key
 
-# Optional - Music
-SUNO_COOKIE=your_suno_cookie
 ```
 
 ---
 
 ## 🎯 Usage
 
-### Web Interface (Recommended)
-
-1. **Start the server**:
-   ```bash
-   python eve_api_docker_versoin.py
-   ```
-
-2. **Open browser**:
-   ```
-   http://localhost:8892
-   ```
-
-3. **Choose interface**:
-   - **Pro Theme**: Modern dark theme with full features
-   - **Modern Theme**: Clean, responsive design
-   - **Cosmic Theme**: Immersive visual experience
 
 ### Terminal GUI
 
@@ -175,12 +149,7 @@ Features:
 ### System Components
 
 ```
-┌─────────────────────────────────────────────┐
-│          Web Interface (Vue.js)             │
-│  - Pro Theme / Modern Theme / Cosmic Theme  │
-└───────────────┬─────────────────────────────┘
-                │
-                ▼
+
 ┌─────────────────────────────────────────────┐
 │       Eve API Server (Flask)                │
 │  - Session Management                       │
@@ -210,26 +179,7 @@ Features:
 │  - R2: Images & Media                       │
 │  - Workers: API Proxies                     │
 └─────────────────────────────────────────────┘
-```
-
 ---
-
-## 🎨 Themes
-
-### Pro Theme (Default)
-- **Dark Mode**: Sleek black/purple gradient
-- **Features**: Full toolkit sidebar, session management, dream gallery
-- **Best For**: Power users, creative work
-
-### Modern Theme  
-- **Light/Dark**: Toggle-able themes
-- **Features**: Clean interface, responsive design
-- **Best For**: General use, mobile-friendly
-
-### Cosmic Theme
-- **Immersive**: Space-inspired visuals
-- **Features**: Animated backgrounds, particle effects
-- **Best For**: Immersive experience
 
 ---
 
