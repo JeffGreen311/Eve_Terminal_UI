@@ -19,7 +19,40 @@ import os
 import re
 import sqlite3
 import sys
+import traceback
+from pathlib import Path
 from datetime import datetime
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Crash diagnostics
+# ──────────────────────────────────────────────────────────────────────────────
+_CRASH_LOG_PATH = Path(os.getenv("EVE_CRASH_LOG", "eve_crash_traceback.log"))
+
+
+def _log_unhandled_exception(exc_type, exc_value, exc_traceback):
+    """Write unhandled exceptions to a local crash log for force-close debugging."""
+    # Honor KeyboardInterrupt default behavior.
+    if issubclass(exc_type, KeyboardInterrupt):
+        return sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    header = f"\n\n[{timestamp}] Unhandled exception in eve_terminal_gui_cosmic.py\n"
+    formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+
+    try:
+        with _CRASH_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(header)
+            f.write(formatted)
+    except Exception:
+        # Never allow logging failures to mask original crash output.
+        pass
+
+    # Preserve normal stderr traceback output.
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+
+sys.excepthook = _log_unhandled_exception
 
 # ╔══════════════════════════════════════════════╗
 # ║      🎨 SANA ENHANCEMENT AUTO-UPDATER        ║
