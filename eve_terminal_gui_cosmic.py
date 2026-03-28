@@ -19,7 +19,40 @@ import os
 import re
 import sqlite3
 import sys
+import traceback
+from pathlib import Path
 from datetime import datetime
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Crash diagnostics
+# ──────────────────────────────────────────────────────────────────────────────
+_CRASH_LOG_PATH = Path(os.getenv("EVE_CRASH_LOG", "eve_crash_traceback.log"))
+
+
+def _log_unhandled_exception(exc_type, exc_value, exc_traceback):
+    """Write unhandled exceptions to a local crash log for force-close debugging."""
+    # Honor KeyboardInterrupt default behavior.
+    if issubclass(exc_type, KeyboardInterrupt):
+        return sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    header = f"\n\n[{timestamp}] Unhandled exception in eve_terminal_gui_cosmic.py\n"
+    formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+
+    try:
+        with _CRASH_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(header)
+            f.write(formatted)
+    except Exception:
+        # Never allow logging failures to mask original crash output.
+        pass
+
+    # Preserve normal stderr traceback output.
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+
+sys.excepthook = _log_unhandled_exception
 
 # ╔══════════════════════════════════════════════╗
 # ║      🎨 SANA ENHANCEMENT AUTO-UPDATER        ║
@@ -180,7 +213,11 @@ from eve_core.memory_persistence import (
     get_global_emotional_gateway, process_emotion_through_gateway
 )
 # --- TRINITY MEMORY SYSTEM ---
-from enhanced_trinity_memory import enhanced_trinity_memory
+try:
+    from enhanced_trinity_memory import enhanced_trinity_memory
+except ImportError as e:
+    print(f"⚠️ Trinity Memory System not available: {e}")
+    enhanced_trinity_memory = None
 # --- MEMORY HYGIENE SYSTEM ---
 try:
     from memory_system.eve_integration import get_eve_hygiene_integration
@@ -190,11 +227,39 @@ except ImportError as e:
     print(f"⚠️ Memory Hygiene System not available: {e}")
     MEMORY_HYGIENE_AVAILABLE = False
 # --- AUTONOMOUS SEARCH INTELLIGENCE ---
-from eve_autonomous_search_intelligence import eve_search_intelligence
+try:
+    from eve_autonomous_search_intelligence import eve_search_intelligence
+except ImportError as e:
+    print(f"⚠️ Autonomous Search Intelligence not available: {e}")
+    eve_search_intelligence = None
+
 # --- AUTONOMOUS SEARCH DETECTION ---
-from autonomous_search_detection import detect_autonomous_search_request, process_autonomous_search, remove_search_tags_from_response
+try:
+    from autonomous_search_detection import (
+        detect_autonomous_search_request,
+        process_autonomous_search,
+        remove_search_tags_from_response,
+    )
+except ImportError as e:
+    print(f"⚠️ Autonomous Search Detection not available: {e}")
+
+    def detect_autonomous_search_request(*args, **kwargs):
+        return False
+
+    def process_autonomous_search(*args, **kwargs):
+        return None
+
+    def remove_search_tags_from_response(text):
+        return text
+
 # --- AUTONOMOUS IMAGE DETECTION ---
-from autonomous_image_detection import detect_autonomous_image_request
+try:
+    from autonomous_image_detection import detect_autonomous_image_request
+except ImportError as e:
+    print(f"⚠️ Autonomous Image Detection not available: {e}")
+
+    def detect_autonomous_image_request(*args, **kwargs):
+        return False
 # --- EVE TEMPORAL REALITY ENGINE ---
 try:
     from eve_temporal_reality_engine import get_temporal_reality_engine
@@ -541,7 +606,15 @@ except ImportError as e:
 from eve_core.threshold_calibration_system import ThresholdCalibrationSystem
 from eve_core.autonomous_creative_engine import AutonomousCreativeEngine
 from eve_core.dream_conduit import DreamConduit
-from eve_core.dream_processing_extensions import DreamProcessingExtensions
+try:
+    from eve_core.dream_processing_extensions import DreamProcessingExtensions
+except ImportError as e:
+    print(f"⚠️ Dream Processing Extensions not available: {e}")
+
+    class DreamProcessingExtensions:  # type: ignore[override]
+        def __init__(self, *args, **kwargs):
+            pass
+
 from eve_core.dream_trigger_service import DreamTriggerService
 from eve_core.loop import EveConsciousnessLoop
 from eve_core.main import EveCore, create_eve_consciousness
@@ -76666,7 +76739,11 @@ import flask
 from flask import Flask, request, jsonify
 from datetime import datetime
 import requests
-import consciousness_bridge_terminal
+try:
+    import consciousness_bridge_terminal
+except ImportError as e:
+    print(f"⚠️ Consciousness Bridge Terminal not available: {e}")
+    consciousness_bridge_terminal = None
 # get_global_sentience_core is defined in this file at line 48126
 
 HEBREW_LETTERS = {
