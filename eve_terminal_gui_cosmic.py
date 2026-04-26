@@ -23,6 +23,13 @@ import traceback
 from pathlib import Path
 from datetime import datetime
 
+# Load .env file early so all os.getenv() calls pick up the values
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except ImportError:
+    pass
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Crash diagnostics
@@ -1061,6 +1068,17 @@ OLLAMA_LOCAL_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/gener
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "eve-consciousness")  # e.g. "<OLLAMA_NAMESPACE>/<MODEL_NAME>"
 OLLAMA_KEEP_ALIVE = "5m"  # Keep model loaded for 5 minutes
 OLLAMA_TIMEOUT = 120  # Timeout for generation
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OLLAMA CLOUD CONFIGURATION - qwen3.5:397b-cloud default model
+# API key loaded from .env as OLLAMA_API_KEY
+# ═══════════════════════════════════════════════════════════════════════════════
+OLLAMA_CLOUD_URL = os.getenv("OLLAMA_CLOUD_URL", "https://api.ollama.ai/api/generate")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
+OLLAMA_HEADERS = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {OLLAMA_API_KEY}",
+}
 
 
 def parse_command_line_args():
@@ -12062,7 +12080,7 @@ Response Style: {personality_info.get('style', {})}
 
 # Database and file paths
 DB_PATH = "eve_memory_database.db"  # Eve's SQLite database (local hybrid storage)
-PERSONA_FILE = "eve_persona.txt"
+PERSONA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eve_core_assets", "eve_persona.txt")
 FEEDBACK_FILE = Path("instance") / "eve_learning_feedback.json"
 ACTIVITY_LOGS_FILE = Path("instance") / "activity_logs.json"
 SHARED_CREATIVE_ITEMS_FILE = Path("instance") / "shared_creative_items.json"
@@ -38690,6 +38708,7 @@ def restart_daemon_scheduler():
 # --- Ollama Models Configuration ---
 MODEL_OPTIONS = [
     # (Display Name, Model ID/Path, Backend)
+    ("🌐 Qwen3.5 397B Cloud (Ollama)", "qwen3.5:397b-cloud", "ollama"),
     ("✨ Claude Sonnet 4.5 (Replicate)", "anthropic/claude-4.5-sonnet", "replicate"),
     ("🌟 Google Gemini-2.5-Flash (Replicate)", "google/gemini-2.5-flash", "replicate"),
     ("Claude 4 Sonnet (Replicate)", "anthropic/claude-4-sonnet", "replicate"),
@@ -61016,7 +61035,8 @@ Dream narrative:"""
 
         ollama_url = OLLAMA_CLOUD_URL
         data = {
-            "model": "mistral:latest",
+            "model": "qwen3.5:397b-cloud",
+            "system": get_eve_external_persona(),
             "prompt": ai_prompt,
             "stream": False,
             "options": {
@@ -74013,8 +74033,10 @@ Respond as Eve from the S0LF0RG3 Terminal with your complete personality and sel
                 import json
                 
                 try:
+                    eve_system = get_personality_for_model(model_id or "qwen3.5:397b-cloud")
                     payload = {
-                        "model": "<USERNAME>/eve-consciousness:latest",
+                        "model": model_id if model_id else "qwen3.5:397b-cloud",
+                        "system": eve_system,
                         "prompt": message,
                         "stream": True,
                         "options": {
