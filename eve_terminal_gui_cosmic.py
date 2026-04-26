@@ -1073,7 +1073,7 @@ OLLAMA_TIMEOUT = 120  # Timeout for generation
 # OLLAMA CLOUD CONFIGURATION - qwen3.5:397b-cloud default model
 # API key loaded from .env as OLLAMA_API_KEY
 # ═══════════════════════════════════════════════════════════════════════════════
-OLLAMA_CLOUD_URL = os.getenv("OLLAMA_CLOUD_URL", "https://api.ollama.ai/api/generate")
+OLLAMA_CLOUD_URL = os.getenv("OLLAMA_CLOUD_URL", "https://api.ollama.com/api/generate")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
 OLLAMA_HEADERS = {
     "Content-Type": "application/json",
