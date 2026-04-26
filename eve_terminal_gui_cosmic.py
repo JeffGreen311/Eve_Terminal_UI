@@ -64359,8 +64359,8 @@ def setup_gui_and_show_splash():
     # Text model selection dropdown (placed first)
     model_display_names = [name for name, _, _ in MODEL_OPTIONS]
     
-    # Set Google Gemini as default for self-awareness capabilities
-    default_model = "🌟 Google Gemini-2.5-Flash (Replicate)" if "🌟 Google Gemini-2.5-Flash (Replicate)" in model_display_names else "👑 Eve's PREMIUM Qwen 2.5 14B"
+    # Default to the first model in MODEL_OPTIONS (qwen3.5:397b-cloud)
+    default_model = model_display_names[0] if model_display_names else "🌐 Qwen3.5 397B Cloud (Ollama)"
     
     print(f"🧠 DEFAULT MODEL SET: {default_model}")
     print("🌟 EVE COMPLETE PERSONALITY MODE: Full personality + enhanced capabilities")
@@ -73804,8 +73804,44 @@ def process_message_internal(message: str) -> str:
                     print("⚠️ DEBUG: Replicate module not available")
             
             elif backend == "ollama":
-                print("🔧 DEBUG: Routing to Ollama backend...")
-                # Handle Ollama models (existing logic can be moved here)
+                print("🔧 DEBUG: Routing to Ollama Cloud backend...")
+                try:
+                    import requests as _requests
+                    import json as _json
+                    eve_system = get_personality_for_model(model_id or "qwen3.5:397b-cloud")
+                    payload = {
+                        "model": model_id if model_id else "qwen3.5:397b-cloud",
+                        "system": eve_system,
+                        "prompt": message,
+                        "stream": True,
+                        "options": {
+                            "temperature": 0.8,
+                            "top_p": 0.9
+                        }
+                    }
+                    resp = _requests.post(
+                        OLLAMA_CLOUD_URL,
+                        json=payload,
+                        headers=OLLAMA_HEADERS,
+                        timeout=OLLAMA_TIMEOUT,
+                        stream=True
+                    )
+                    if resp.status_code == 200:
+                        full_response = ""
+                        for line in resp.iter_lines():
+                            if line:
+                                chunk = _json.loads(line)
+                                if 'response' in chunk:
+                                    full_response += chunk['response']
+                        if full_response.strip():
+                            print(f"✅ DEBUG: Ollama Cloud response: {full_response[:80]}...")
+                            return apply_eve_personality_filter(full_response)
+                        else:
+                            print("⚠️ DEBUG: Ollama Cloud returned empty response")
+                    else:
+                        print(f"❌ DEBUG: Ollama Cloud HTTP {resp.status_code}: {resp.text[:200]}")
+                except Exception as ollama_e:
+                    print(f"❌ DEBUG: Ollama Cloud error: {ollama_e}")
             
             # If we get here, the selected model failed, continue to fallback
             print("⚠️ DEBUG: Selected model failed, falling back to default...")
