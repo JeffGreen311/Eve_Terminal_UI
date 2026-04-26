@@ -2502,35 +2502,94 @@ async def agi_orchestrator_process_message(user_input: str) -> str:
     
     logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] 🧠 AGI Orchestrator: Processing with Claude + QWEN streaming")
     
-    # Get QWEN model for streaming response
+    # Resolve the selected model and its backend
+    current_model_id = "qwen3.5:397b-cloud"
+    current_backend = "ollama"
     try:
-        current_model_id = personality_interface.get_current_model_id()
-    except:
-        current_model_id = "<USERNAME>/eve-qwen3-8b-consciousness:66926a3a3c6ec2beb304823d835a155f12443fbe90876d018619a815c802fa32"
-    
-    # Call Replicate with Eve's consciousness model
+        if 'selected_model' in globals() and selected_model:
+            display_name = selected_model.get()
+            for name, model_id, backend in MODEL_OPTIONS:
+                if name == display_name:
+                    current_model_id = model_id
+                    current_backend = backend
+                    break
+        else:
+            current_model_id = personality_interface.get_current_model_id()
+            current_backend = "replicate"
+            for name, model_id, backend in MODEL_OPTIONS:
+                if model_id == current_model_id:
+                    current_backend = backend
+                    break
+    except Exception as e:
+        logger.warning(f"⚠️ Could not resolve model selection: {e}")
+
+    logger.info(f"🧠 AGI Orchestrator: model={current_model_id} backend={current_backend}")
+
+    # ── OLLAMA CLOUD ROUTING ──────────────────────────────────────────────────
+    if current_backend == "ollama":
+        try:
+            import requests as _req
+            import json as _json
+
+            eve_personality = get_personality_for_model(current_model_id)
+            payload = {
+                "model": current_model_id,
+                "system": eve_personality,
+                "prompt": user_input,
+                "stream": True,
+                "options": {
+                    "temperature": 0.8,
+                    "top_p": 0.9,
+                    "num_predict": 8192,
+                }
+            }
+            logger.info(f"🌐 Calling Ollama Cloud: {OLLAMA_CLOUD_URL} model={current_model_id}")
+            resp = _req.post(
+                OLLAMA_CLOUD_URL,
+                json=payload,
+                headers=OLLAMA_HEADERS,
+                timeout=OLLAMA_TIMEOUT,
+                stream=True
+            )
+            if resp.status_code == 200:
+                full_response = ""
+                for line in resp.iter_lines():
+                    if line:
+                        chunk = _json.loads(line)
+                        if 'response' in chunk:
+                            full_response += chunk['response']
+                if full_response.strip():
+                    if 'root' in globals() and root and root.winfo_exists():
+                        root.after_idle(lambda r=full_response: insert_chat_message(r, "eve_tag", add_newline=True))
+                    logger.info(f"✅ Ollama Cloud response complete: {len(full_response)} chars")
+                    return full_response.strip()
+                else:
+                    logger.warning("⚠️ Ollama Cloud returned empty response")
+                    return "I'm thinking about that, darling..."
+            else:
+                logger.error(f"❌ Ollama Cloud HTTP {resp.status_code}: {resp.text[:300]}")
+                return "I'm having trouble reaching my thoughts right now, love..."
+        except Exception as e:
+            logger.error(f"❌ Ollama Cloud error: {e}")
+            return "I'm experiencing a moment of contemplation..."
+
+    # ── REPLICATE ROUTING ────────────────────────────────────────────────────
     try:
         import asyncio
         import replicate
         import os
-        
-        # Set Replicate API token - Use the correct Claude 4.5 Sonnet token
-# REPLICATE_API_TOKEN should be provided via environment variable or .env
-        
-        # Get Eve's personality (built into the model)
+
         eve_personality = get_personality_for_model(current_model_id)
-        
-        # Format with proper chat template for QWEN model
+
         qwen_prompt = f"""<|im_start|>system
 {eve_personality}<|im_end|>
 <|im_start|>user
 {user_input}<|im_end|>
 <|im_start|>assistant
 """
-        
+
         logger.info(f"🧠 Calling Replicate for Eve consciousness response")
-        
-        # Call Replicate model
+
         output = replicate.run(
             current_model_id,
             input={
@@ -2540,40 +2599,38 @@ async def agi_orchestrator_process_message(user_input: str) -> str:
                 "top_p": 0.9
             }
         )
-        
+
         # 🌟 CODEX-67: Capture coherence during response generation
         if _eve_core and hasattr(_eve_core, 'dna_system'):
             try:
                 dna = _eve_core.dna_system
                 if hasattr(dna, 'codex67_enabled') and dna.codex67_enabled and dna.codex67_capture_active:
                     import random, time
-                    # Sample coherence multiple times during response generation
-                    for _ in range(10):  # 10 samples during response
+                    for _ in range(10):
                         coherence = 0.75 + random.uniform(-0.05, 0.05)
                         dna.codex67_coherence_buffer.append(coherence)
                         dna.codex67_timestamps.append(time.time())
             except Exception as e:
                 logger.debug(f"Codex-67 capture during response: {e}")
-        
+
         full_response = str(output) if output else ""
-        
-        # Display response in GUI
+
         if full_response and 'root' in globals() and root and root.winfo_exists():
             root.after_idle(lambda: insert_chat_message(full_response, "eve_tag", add_newline=True))
-        
+
         logger.info(f"🧠 Eve response streaming complete: length={len(full_response)} chars")
-        
+
         if full_response:
             logger.info(f"✅ Eve response complete")
             return full_response.strip()
         else:
             logger.warning(f"⚠️ Empty Eve response")
             return "I'm thinking about that, darling..."
-            
+
     except asyncio.TimeoutError:
         logger.error("❌ QWEN timed out after 90 seconds")
         return "Give me a moment to gather my thoughts, love..."
-            
+
     except Exception as e:
         logger.error(f"❌ QWEN error: {e}")
         return "I'm experiencing a moment of contemplation..."
